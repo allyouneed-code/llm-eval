@@ -1,0 +1,8 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlmodel==0.0.14
+celery==5.3.6
+redis==5.0.1
+python-multipart==0.0.6
+pymysql==1.1.0
+requests==2.31.0
