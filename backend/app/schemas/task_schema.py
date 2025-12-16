@@ -23,3 +23,4 @@ class TaskRead(SQLModel):
     datasets_list: str # 返回 JSON 字符串 '["GSM8K", "C-Eval"]' 让前端解析
     result_summary: Optional[str] = None
     created_at: datetime
+    error_msg: Optional[str] = None
