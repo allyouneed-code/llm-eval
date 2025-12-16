@@ -9,6 +9,7 @@ class Dataset(SQLModel, table=True):
     
     # 1. 基础信息
     name: str = Field(index=True, unique=True) # 如 "GSM8K", "Bank_QA"
+    capability: str = Field(default="Base", index=True)
     path: str # 数据集文件路径
     
     # 2. UI 展示字段 (给人看)

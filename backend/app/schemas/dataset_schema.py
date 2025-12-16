@@ -6,8 +6,8 @@ from datetime import datetime
 class DatasetBase(SQLModel):
     name: str
     path: str
+    capability: str = "Base"
     metric_name: str = "Accuracy" # 给前端展示的指标名
-    # 给引擎看的配置 (JSON字符串)，默认给个最通用的
     evaluator_config: str = '{"type": "AccEvaluator"}' 
     description: Optional[str] = None
 

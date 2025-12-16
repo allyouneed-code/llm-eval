@@ -1,10 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 from sqlmodel import Session, select
 from typing import List
 
 from app.core.database import get_session
 from app.models.llm_model import LLMModel
 from app.schemas.model_schema import ModelCreate, ModelRead
+
+import os
+import requests
 
 router = APIRouter()
 
@@ -58,3 +61,13 @@ def delete_model(model_id: int, session: Session = Depends(get_session)):
     session.commit()
     
     return {"ok": True, "message": f"Model {model.name} deleted"}
+
+# 1. 校验名称唯一性
+@router.post("/validate/name")
+def validate_name_uniqueness(
+    name: str = Body(..., embed=True), 
+    session: Session = Depends(get_session)
+):
+    statement = select(LLMModel).where(LLMModel.name == name)
+    existing = session.exec(statement).first()
+    return {"unique": not existing}

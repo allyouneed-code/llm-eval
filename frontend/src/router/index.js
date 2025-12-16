@@ -14,7 +14,16 @@ const router = createRouter({
       name: 'models',
       component: ModelView
     },
-    // 下次再加 Tasks 和 Datasets
+    {
+      path: '/datasets', // 新增路由
+      name: 'datasets',
+      component: () => import('../views/DatasetView.vue')
+    },
+    {
+      path: '/tasks', // 新增
+      name: 'tasks',
+      component: () => import('../views/TaskView.vue')
+    }
   ]
 })
 
