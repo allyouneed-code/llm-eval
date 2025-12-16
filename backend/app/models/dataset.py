@@ -21,6 +21,7 @@ class Dataset(SQLModel, table=True):
     # 用于生成 Python 评测脚本。
     # 例如: '{"type": "opencompass.openicl.icl_evaluator.AccEvaluator"}'
     evaluator_config: str = Field(default='{"type": "AccEvaluator"}')
+    is_system: bool = Field(default=False)
     
     # 4. 其他
     description: Optional[str] = None

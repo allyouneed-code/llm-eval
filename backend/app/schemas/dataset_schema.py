@@ -10,6 +10,7 @@ class DatasetBase(SQLModel):
     metric_name: str = "Accuracy" # 给前端展示的指标名
     evaluator_config: str = '{"type": "AccEvaluator"}' 
     description: Optional[str] = None
+    is_system: bool = False
 
 # 1. 创建时 (Create DTO)
 class DatasetCreate(DatasetBase):
