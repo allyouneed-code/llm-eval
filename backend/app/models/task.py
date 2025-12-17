@@ -16,7 +16,7 @@ class EvaluationTask(SQLModel, table=True):
     # 进度条 (0-100)
     progress: int = Field(default=0)
     
-    # 本次任务选了哪些数据集？存 JSON 列表，例如 '["gsm8k", "ceval"]'
+    # 本次任务选了哪些数据集？存 JSON 列表，例如 '[1, 5, 8]' (对应 DatasetConfig 的 ID)
     datasets_list: str 
     
     # 评测结果摘要 (存 JSON，方便前端直接读取展示雷达图)

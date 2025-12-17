@@ -1,11 +1,11 @@
-# backend/app/worker/celery_app.py
 import json
 import time
-import random
 from celery import Celery
 from sqlmodel import Session, select
 from app.core.database import engine
 from app.models.task import EvaluationTask
+# 引入新模型以获取详细信息
+from app.models.dataset import DatasetConfig, DatasetMeta
 
 celery_app = Celery(
     "worker",
@@ -14,19 +14,13 @@ celery_app = Celery(
 )
 celery_app.conf.broker_connection_retry_on_startup = True
 
-def _update_task(task_id: int, progress: int = None, status: str = None, result: dict = None, append_log: str = None):
-    """辅助函数：更新数据库中的任务状态"""
+def _update_task(task_id: int, progress: int = None, status: str = None, result: dict = None):
     with Session(engine) as session:
         task = session.get(EvaluationTask, task_id)
         if task:
             if progress is not None: task.progress = progress
             if status is not None: task.status = status
             if result is not None: task.result_summary = json.dumps(result)
-            
-            # 简单的日志模拟：实际场景建议用 Redis List 存日志
-            # 这里我们不存数据库文本字段以免太长，我们只在前端模拟日志滚动，或者
-            # 在这里打印到控制台，前端暂时用假日志模拟“实时感”。
-            
             session.add(task)
             session.commit()
 
@@ -34,6 +28,31 @@ def _update_task(task_id: int, progress: int = None, status: str = None, result:
 def run_evaluation_task(task_id: int):
     print(f"🚀 [Worker] 开始执行任务 {task_id}")
     
+    # 0. 获取任务信息和配置详情
+    with Session(engine) as session:
+        task = session.get(EvaluationTask, task_id)
+        if not task:
+            return "Task Not Found"
+            
+        config_ids = json.loads(task.datasets_list)
+        # 查询详细配置信息用于生成报告
+        configs = session.exec(
+            select(DatasetConfig).where(DatasetConfig.id.in_(config_ids))
+        ).all()
+        
+        # 预先准备好报告用的名称列表
+        # 格式示例: "GSM8K (gen)", "C-Eval (ppl)"
+        report_items = []
+        for cfg in configs:
+            # 注意：这里需要由于 lazy loading，可能需要手动加载 meta，或者确保 session 没关
+            # 如果配置了 Relationship，可以直接访问 cfg.meta.name
+            dataset_name = cfg.meta.name if cfg.meta else "Unknown"
+            report_items.append({
+                "name": f"{dataset_name} ({cfg.mode})",
+                "capability": cfg.meta.category, # 假设 category 是能力维度
+                "metric": cfg.display_metric
+            })
+
     # 1. 初始化
     _update_task(task_id, progress=5, status="running")
     time.sleep(1)
@@ -42,37 +61,41 @@ def run_evaluation_task(task_id: int):
     _update_task(task_id, progress=20)
     time.sleep(2)
     
-    # 3. 模拟评测数据集 (循环进度)
-    total_steps = 5
-    for i in range(total_steps):
-        current_progress = 20 + int((i / total_steps) * 60)
-        _update_task(task_id, progress=current_progress)
-        time.sleep(1.5) # 模拟推理耗时
-        
-    # 4. 构造最终结果 
-    # Layer 1: Radar Data (能力维度)
-    # Layer 2: Table Data (数据集明细)
-    # Layer 3: Files (中间文件)
+    # 3. 模拟评测数据集
+    total_steps = len(report_items) # 根据实际选择的数据集数量
+    if total_steps == 0: total_steps = 1
     
+    table_data = []
+    
+    for i, item in enumerate(report_items):
+        # 更新进度
+        current_progress = 20 + int(((i + 1) / total_steps) * 60)
+        _update_task(task_id, progress=current_progress)
+        
+        time.sleep(1.5) # 模拟推理
+        
+        # 生成该数据集的模拟分数
+        import random
+        score = round(random.uniform(50, 95), 1)
+        
+        table_data.append({
+            "dataset": item["name"],
+            "capability": item["capability"],
+            "metric": item["metric"],
+            "score": score
+        })
+
+    # 4. 构造最终结果 
     final_result = {
         "radar": [
+            # 这里简化处理，实际应该根据 table_data 聚合 capability 分数
             {"name": "Knowledge", "max": 100, "score": 85.5},
             {"name": "Reasoning", "max": 100, "score": 62.1},
             {"name": "Coding", "max": 100, "score": 78.4},
-            {"name": "Understanding", "max": 100, "score": 90.2},
-            {"name": "Safety", "max": 100, "score": 95.0}
         ],
-        "table": [
-            {"dataset": "GSM8K", "capability": "Reasoning", "metric": "Accuracy", "score": 64.2},
-            {"dataset": "MMLU", "capability": "Knowledge", "metric": "Accuracy", "score": 81.5},
-            {"dataset": "HumanEval", "capability": "Coding", "metric": "Pass@1", "score": 70.2},
-            {"dataset": "C-Eval", "capability": "Knowledge", "metric": "Accuracy", "score": 89.5},
-            {"dataset": "TruthfulQA", "capability": "Safety", "metric": "MC1", "score": 95.0}
-        ],
+        "table": table_data, # 使用动态生成的数据
         "files": [
-            {"name": "prediction_results.jsonl", "size": "12MB", "type": "json"},
-            {"name": "eval_metrics.csv", "size": "4KB", "type": "csv"},
-            {"name": "bad_cases_analysis.html", "size": "1.5MB", "type": "html"}
+            {"name": "prediction_results.jsonl", "size": "12MB", "type": "json"}
         ]
     }
     
