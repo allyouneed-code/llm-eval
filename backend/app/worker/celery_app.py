@@ -1,11 +1,13 @@
 import json
 import time
+import random #模拟用
 from celery import Celery
 from sqlmodel import Session, select
 from app.core.database import engine
 from app.models.task import EvaluationTask
 # 引入新模型以获取详细信息
-from app.models.dataset import DatasetConfig, DatasetMeta
+from app.models.dataset import DatasetConfig
+from app.models.result import EvaluationResult
 
 celery_app = Celery(
     "worker",
@@ -28,78 +30,96 @@ def _update_task(task_id: int, progress: int = None, status: str = None, result:
 def run_evaluation_task(task_id: int):
     print(f"🚀 [Worker] 开始执行任务 {task_id}")
     
-    # 0. 获取任务信息和配置详情
+    # 打开 Session，注意这里我们扩大了 Session 的作用域，
+    # 以便在循环中直接写入 EvaluationResult
     with Session(engine) as session:
+        # 0. 获取任务信息
         task = session.get(EvaluationTask, task_id)
         if not task:
             return "Task Not Found"
             
         config_ids = json.loads(task.datasets_list)
-        # 查询详细配置信息用于生成报告
         configs = session.exec(
             select(DatasetConfig).where(DatasetConfig.id.in_(config_ids))
         ).all()
         
-        # 预先准备好报告用的名称列表
-        # 格式示例: "GSM8K (gen)", "C-Eval (ppl)"
-        report_items = []
+        # 预处理：构建待评测列表，🌟 关键：保留 config.id 以便写入数据库
+        eval_queue = []
         for cfg in configs:
-            # 注意：这里需要由于 lazy loading，可能需要手动加载 meta，或者确保 session 没关
-            # 如果配置了 Relationship，可以直接访问 cfg.meta.name
-            dataset_name = cfg.meta.name if cfg.meta else "Unknown"
-            report_items.append({
-                "name": f"{dataset_name} ({cfg.mode})",
-                "capability": cfg.meta.category, # 假设 category 是能力维度
+            dataset_name = cfg.meta.name if cfg.meta else f"Dataset-{cfg.id}"
+            eval_queue.append({
+                "config_id": cfg.id,     # 🌟 必须传 ID 给后续写入使用
+                "name": dataset_name,
+                "mode": cfg.mode,
+                "capability": cfg.meta.category,
                 "metric": cfg.display_metric
             })
 
-    # 1. 初始化
-    _update_task(task_id, progress=5, status="running")
-    time.sleep(1)
-    
-    # 2. 模拟加载模型
-    _update_task(task_id, progress=20)
-    time.sleep(2)
-    
-    # 3. 模拟评测数据集
-    total_steps = len(report_items) # 根据实际选择的数据集数量
-    if total_steps == 0: total_steps = 1
-    
-    table_data = []
-    
-    for i, item in enumerate(report_items):
-        # 更新进度
-        current_progress = 20 + int(((i + 1) / total_steps) * 60)
-        _update_task(task_id, progress=current_progress)
+        # 1. 更新状态
+        task.progress = 5
+        task.status = "running"
+        session.add(task)
+        session.commit()
         
-        time.sleep(1.5) # 模拟推理
+        # 2. 模拟加载模型
+        time.sleep(1)
+        task.progress = 10
+        session.add(task)
+        session.commit()
         
-        # 生成该数据集的模拟分数
-        import random
-        score = round(random.uniform(50, 95), 1)
+        # 3. 逐个评测数据集
+        total_steps = len(eval_queue)
+        table_data = [] # 用于最后生成前端大 JSON
         
-        table_data.append({
-            "dataset": item["name"],
-            "capability": item["capability"],
-            "metric": item["metric"],
-            "score": score
-        })
+        for i, item in enumerate(eval_queue):
+            # 模拟推理耗时
+            time.sleep(1.5) 
+            
+            # 模拟分数生成
+            score = round(random.uniform(50, 95), 1)
+            
+            # === 🌟 核心修改 Start: 写入原子化结果表 ===
+            db_result = EvaluationResult(
+                task_id=task_id,
+                dataset_config_id=item["config_id"], # 这里用到了上面保留的 ID
+                dataset_name=item["name"],           # 冗余存个名字
+                metric_name=item["metric"],
+                score=score,
+                details={"full_log": "mock_log_path.txt"} # 模拟存一些详情
+            )
+            session.add(db_result)
+            # === 核心修改 End ===
 
-    # 4. 构造最终结果 
-    final_result = {
-        "radar": [
-            # 这里简化处理，实际应该根据 table_data 聚合 capability 分数
-            {"name": "Knowledge", "max": 100, "score": 85.5},
-            {"name": "Reasoning", "max": 100, "score": 62.1},
-            {"name": "Coding", "max": 100, "score": 78.4},
-        ],
-        "table": table_data, # 使用动态生成的数据
-        "files": [
-            {"name": "prediction_results.jsonl", "size": "12MB", "type": "json"}
-        ]
-    }
-    
-    # 5. 完成
-    _update_task(task_id, progress=100, status="success", result=final_result)
-    print(f"✅ [Worker] 任务 {task_id} 完成")
+            # 同时维护给前端看的 table_data (保持旧逻辑兼容)
+            table_data.append({
+                "dataset": f"{item['name']} ({item['mode']})",
+                "capability": item["capability"],
+                "metric": item["metric"],
+                "score": score
+            })
+            
+            # 更新进度
+            current_progress = 10 + int(((i + 1) / total_steps) * 80)
+            task.progress = current_progress
+            session.add(task)
+            session.commit()
+
+        # 4. 构造最终摘要 (Radar + Table)
+        # 这里依然生成 result_summary 是为了让前端 Dashboard 不用改代码也能跑
+        final_summary = {
+            "radar": [
+                {"name": "Knowledge", "max": 100, "score": 85.5},
+                {"name": "Reasoning", "max": 100, "score": 62.1},
+            ],
+            "table": table_data 
+        }
+        
+        task.result_summary = json.dumps(final_summary)
+        task.status = "success"
+        task.progress = 100
+        
+        session.add(task)
+        session.commit()
+        
+    print(f"✅ [Worker] 任务 {task_id} 完成，结果已存入 evaluation_results 表")
     return f"Task {task_id} Success"

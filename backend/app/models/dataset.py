@@ -1,6 +1,12 @@
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
+# 引入 Link 表
+from app.models.links import TaskDatasetLink
+
+if TYPE_CHECKING:
+    from app.models.task import EvaluationTask
+    from app.models.result import EvaluationResult
 
 # ==========================================
 # 1. 数据集元数据表 (DatasetMeta)
@@ -33,24 +39,24 @@ class DatasetConfig(SQLModel, table=True):
     # 标识
     config_name: str = Field(index=True)
     
-    # 🌟 修复点：补回文件路径字段
+    # 🌟 关键字段：确保这些都在！
     file_path: str 
-    
-    # 评测模式
     mode: str = Field(default="gen")         # gen / ppl
     prompt_version: Optional[str] = None
-
-    # 🌟 修复点：补回前端展示用的指标字段 (对应 API 中的 metric_name)
     display_metric: str = Field(default="Accuracy") 
     
     # 复杂配置 (存 JSON)
     reader_cfg: str = Field(default="{}") 
     infer_cfg: str = Field(default="{}")
-    metric_config: str = Field(default="{}") # 对应 evaluator_config
+    metric_config: str = Field(default="{}") 
     
     metrics: List["EvaluationMetric"] = Relationship(back_populates="config")
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    # 🌟 关系定义
+    tasks: List["EvaluationTask"] = Relationship(back_populates="datasets", link_model=TaskDatasetLink)
+    results: List["EvaluationResult"] = Relationship(back_populates="dataset_config")
 
 
 # ==========================================
