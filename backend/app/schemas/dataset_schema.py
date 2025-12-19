@@ -82,7 +82,7 @@ class DatasetConfigCreate(DatasetConfigBase):
 class DatasetConfigRead(DatasetConfigBase):
     id: int
     created_at: datetime = datetime.utcnow()
-    # file_path 通常不返回给前端，或根据需要返回
+    file_path: str
     
     metrics: List[EvaluationMetricRead] = []
 
@@ -106,3 +106,12 @@ class DatasetMetaRead(DatasetMetaBase):
 
 class DatasetMetaDetail(DatasetMetaRead):
     pass
+
+class DatasetPaginationResponse(SQLModel):
+    total: int
+    items: List[DatasetMetaRead]
+
+# === 🌟 新增：分类统计结构 ===
+class CategoryStat(SQLModel):
+    category: str
+    count: int

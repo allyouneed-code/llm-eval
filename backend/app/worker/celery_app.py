@@ -1,6 +1,7 @@
 import json
 import time
 import random #模拟用
+import os
 from celery import Celery
 from sqlmodel import Session, select
 from app.core.database import engine
@@ -9,10 +10,12 @@ from app.models.task import EvaluationTask
 from app.models.dataset import DatasetConfig
 from app.models.result import EvaluationResult
 
+REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
 celery_app = Celery(
     "worker",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0"
+    broker=REDIS_URL,
+    backend=REDIS_URL
 )
 celery_app.conf.broker_connection_retry_on_startup = True
 

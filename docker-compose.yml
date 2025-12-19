@@ -1,25 +1,56 @@
 version: '3.8'
 
 services:
-  # 消息队列 & 缓存
+  # 1. 前端服务 (Nginx + Vue)
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"  # 浏览器访问 http://localhost
+    depends_on:
+      - backend
+    restart: always
+
+  # 2. 后端 API 服务
+  backend:
+    build: ./backend
+    environment:
+      - DATABASE_URL=mysql+pymysql://user:password@db:3306/opencompass_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: always
+
+  # 3. Celery Worker (异步任务)
+  celery_worker:
+    build: ./backend
+    environment:
+      - DATABASE_URL=mysql+pymysql://user:password@db:3306/opencompass_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - backend
+      - redis
+    # 启动命令改为 celery worker
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    restart: always
+
+  # 4. Redis
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
 
-  # 数据库 (暂时用 MySQL)
+  # 5. MySQL 数据库
   db:
     image: mysql:8.0
-    restart: always
     environment:
       MYSQL_DATABASE: opencompass_db
       MYSQL_USER: user
       MYSQL_PASSWORD: password
       MYSQL_ROOT_PASSWORD: root_password
-    ports:
-      - "3306:3306"
     volumes:
       - db_data:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password

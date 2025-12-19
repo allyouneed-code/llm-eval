@@ -4,12 +4,15 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   UploadFilled, Document, Loading, Delete, View, Download, 
-  Search, Medal, User, Odometer, Filter, DataLine,
-  Cpu, Operation // 新增图标
+  Search, Medal, User, Filter, DataLine,
+  Cpu, Operation, QuestionFilled
 } from '@element-plus/icons-vue'
 
 // === 1. 数据定义 ===
-const allDatasets = ref([]) 
+const tableData = ref([])  
+const totalItems = ref(0)  
+const categoryStats = ref([]) 
+
 const activeCapability = ref('All')
 
 // 分页与搜索
@@ -35,69 +38,90 @@ const form = reactive({
   category: '', 
   description: '',
   mode: 'gen',  
-  // 🌟 找回：评测方式字段
-  evaluator_type: 'Rule', // 'Rule' or 'LLM'
+  evaluator_type: 'Rule', 
   metric_name: 'Accuracy'
 })
 
 const API_BASE = 'http://127.0.0.1:8000/api/v1'
 
-// === 2. 核心计算属性 ===
-const capabilities = computed(() => {
-  const caps = new Set(allDatasets.value.map(d => d.category || 'Uncategorized'))
-  return ['All', ...Array.from(caps)]
+// === 2. 核心逻辑 ===
+
+// 🌟 新增：过滤掉无效分类（解决空白行问题）
+const visibleCategoryStats = computed(() => {
+  return categoryStats.value.filter(item => item.category && item.category.trim() !== '')
 })
 
-const filteredDatasets = computed(() => {
-  let result = allDatasets.value
-  if (activeCapability.value !== 'All') {
-    result = result.filter(d => d.category === activeCapability.value)
+const parseConfigInfo = (cfg) => {
+  let evaluator = 'Unknown'
+  let isLLM = false
+  try {
+    const mCfg = JSON.parse(cfg.metric_config)
+    const eType = mCfg.evaluator?.type || mCfg.evaluator || ''
+    evaluator = eType.replace('Evaluator', '') 
+    if (evaluator.toLowerCase().includes('llm') || evaluator.toLowerCase().includes('judge')) {
+      isLLM = true
+    }
+  } catch (e) { }
+  
+  return { evaluator, isLLM }
+}
+
+const fetchStats = async () => {
+  try {
+    const res = await axios.get(`${API_BASE}/datasets/stats`)
+    categoryStats.value = res.data
+  } catch (e) { 
+    console.error(e) 
   }
-  if (showPrivateOnly.value) {
-    result = result.filter(d => !d.is_system)
-  }
-  if (searchKeyword.value.trim()) {
-    const keyword = searchKeyword.value.toLowerCase()
-    result = result.filter(d => 
-      d.name.toLowerCase().includes(keyword) || 
-      (d.description && d.description.toLowerCase().includes(keyword))
-    )
-  }
-  return result
-})
-
-const paginatedDatasets = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredDatasets.value.slice(start, end)
-})
-
-watch([activeCapability, searchKeyword, showPrivateOnly], () => {
-  currentPage.value = 1
-})
-
-// 🌟 联动逻辑：当评测方式改变时，自动切换默认指标
-watch(() => form.evaluator_type, (newVal) => {
-  if (newVal === 'Rule') {
-    form.metric_name = 'Accuracy'
-  } else {
-    form.metric_name = 'Score' // LLM 评测通常是打分
-  }
-})
-
-// === 3. 交互逻辑 ===
+}
 
 const fetchDatasets = async () => {
   try {
-    const res = await axios.get(`${API_BASE}/datasets/`)
-    // 模拟 system 标记
-    allDatasets.value = res.data.map(d => ({
-      ...d,
-      is_system: d.name.includes('GSM8K') || d.name.includes('MMLU') || d.name.includes('C-Eval')
-    }))
+    const params = {
+      page: currentPage.value,
+      page_size: pageSize.value,
+      category: activeCapability.value,
+      keyword: searchKeyword.value || undefined,
+      private_only: showPrivateOnly.value
+    }
+
+    const res = await axios.get(`${API_BASE}/datasets/`, { params })
+    
+    totalItems.value = res.data.total
+    
+    tableData.value = res.data.items.map(d => {
+      let isSystem = true
+      if (!d.configs || d.configs.length === 0) {
+        isSystem = false 
+      } else {
+        const path = d.configs[0].file_path || ''
+        if (path.includes('data/datasets') || path.includes('data\\datasets')) {
+          isSystem = false
+        }
+      }
+      return { ...d, is_system: isSystem }
+    })
+
   } catch (error) {
     ElMessage.error('获取数据集列表失败')
   }
+}
+
+// === 3. 监听与交互 ===
+
+watch([activeCapability, showPrivateOnly], () => {
+  currentPage.value = 1
+  fetchDatasets()
+})
+
+const handleCurrentChange = (val) => {
+  currentPage.value = val
+  fetchDatasets()
+}
+
+const handleSearch = () => {
+  currentPage.value = 1
+  fetchDatasets()
 }
 
 const resetForm = () => {
@@ -105,7 +129,7 @@ const resetForm = () => {
   form.category = ''
   form.description = ''
   form.mode = 'gen'
-  form.evaluator_type = 'Rule' // 重置
+  form.evaluator_type = 'Rule'
   form.metric_name = 'Accuracy'
   removeFile()
 }
@@ -154,21 +178,16 @@ const handleSubmit = async () => {
   formData.append('mode', form.mode)
   formData.append('metric_name', form.metric_name)
   
-  // 🌟 构造 Evaluator Config JSON
-  // 如果是 Rule，对应 AccEvaluator/BleuEvaluator 等
-  // 如果是 LLM，对应 LLMEvaluator
   let evaluatorType = 'AccEvaluator'
   if (form.evaluator_type === 'LLM') {
     evaluatorType = 'LLMEvaluator'
   } else {
-    // Rule mapping
     if (form.metric_name === 'BLEU') evaluatorType = 'BleuEvaluator'
     else if (form.metric_name === 'ROUGE') evaluatorType = 'RougeEvaluator'
     else evaluatorType = 'AccEvaluator'
   }
   
   const configObj = { type: evaluatorType }
-  // 可以在这里扩展 LLM Judge 的配置，例如 { type: 'LLMEvaluator', judge_model: 'gpt-4' }
   
   formData.append('evaluator_config', JSON.stringify(configObj)) 
   formData.append('file', uploadFile.value)
@@ -177,7 +196,8 @@ const handleSubmit = async () => {
     await axios.post(`${API_BASE}/datasets/`, formData)
     ElMessage.success('导入成功')
     dialogVisible.value = false
-    fetchDatasets()
+    fetchStats()    
+    fetchDatasets() 
     resetForm()
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '导入失败')
@@ -186,7 +206,6 @@ const handleSubmit = async () => {
   }
 }
 
-// 预览数据
 const handleViewData = async (row) => {
   savedDataVisible.value = true
   savedDataLoading.value = true
@@ -210,15 +229,13 @@ const handleDelete = (row) => {
     .then(async () => {
       await axios.delete(`${API_BASE}/datasets/${row.id}`)
       ElMessage.success('删除成功')
+      fetchStats()
       fetchDatasets()
     })
 }
 
-const handleCurrentChange = (val) => {
-  currentPage.value = val
-}
-
 onMounted(() => {
+  fetchStats()
   fetchDatasets()
 })
 </script>
@@ -233,12 +250,18 @@ onMounted(() => {
           @select="(index) => activeCapability = index"
           style="border-right: none;"
         >
-          <el-menu-item v-for="cap in capabilities" :key="cap" :index="cap">
+          <el-menu-item index="All">
             <el-icon><DataLine /></el-icon>
-            <span>{{ cap }}</span>
+            <span>All</span>
             <span class="menu-badge">
-              {{ cap === 'All' ? allDatasets.length : allDatasets.filter(d => d.category === cap).length }}
+              {{ categoryStats.reduce((sum, item) => sum + item.count, 0) }}
             </span>
+          </el-menu-item>
+          
+          <el-menu-item v-for="item in visibleCategoryStats" :key="item.category" :index="item.category">
+            <el-icon><DataLine /></el-icon>
+            <span>{{ item.category }}</span>
+            <span class="menu-badge">{{ item.count }}</span>
           </el-menu-item>
         </el-menu>
       </el-aside>
@@ -247,11 +270,72 @@ onMounted(() => {
         <div class="toolbar">
           <div class="toolbar-left">
             <h2 class="page-title">{{ activeCapability === 'All' ? '所有数据集' : activeCapability }}</h2>
-            <el-tag type="info" round style="margin-left: 10px">{{ filteredDatasets.length }} items</el-tag>
-          </div>
+            <el-tag type="info" round style="margin-left: 10px">{{ totalItems }} items</el-tag>
+            
+            <el-popover
+              placement="bottom-start"
+              :width="500"
+              trigger="hover"
+              popper-class="knowledge-popover"
+            >
+              <template #reference>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </template>
+              
+              <div class="knowledge-content">
+                <div class="k-section">
+                  <h4 class="k-title">🛠️ 评测模式 (Mode)</h4>
+                  <div class="k-item">
+                    <span class="k-label">Gen (生成式)</span>
+                    <span class="k-desc">模型生成完整文本。适用于问答、翻译、代码生成。通常较慢。</span>
+                  </div>
+                  <div class="k-item">
+                    <span class="k-label">PPL (判别式)</span>
+                    <span class="k-desc">Perplexity(困惑度)。模型不生成文本，而是计算选项(ABCD)的概率。适用于选择题，速度快。</span>
+                  </div>
+                </div>
+
+                <div class="k-divider"></div>
+
+                <div class="k-section">
+                  <h4 class="k-title">⚖️ 裁判类型 (Evaluator)</h4>
+                  <div class="k-item">
+                    <span class="k-label">Rule (规则)</span>
+                    <span class="k-desc">使用字符串匹配或正则提取答案。客观、标准，但对长文本无力。</span>
+                  </div>
+                  <div class="k-item">
+                    <span class="k-label">LLM (模型)</span>
+                    <span class="k-desc">使用 GPT-4 等强模型作为裁判进行打分。主观、灵活，适合开放性问题。</span>
+                  </div>
+                </div>
+
+                <div class="k-divider"></div>
+
+                <div class="k-section">
+                  <h4 class="k-title">📊 常见指标 (Metrics)</h4>
+                  <div class="k-item">
+                    <span class="k-label">Accuracy</span>
+                    <span class="k-desc">准确率。预测正确数 / 总数。用于选择题。</span>
+                  </div>
+                  <div class="k-item">
+                    <span class="k-label">Pass@k</span>
+                    <span class="k-desc">代码通过率。生成 k 个代码样本，至少有一个通过测试即视为成功。</span>
+                  </div>
+                  <div class="k-item">
+                    <span class="k-label">BLEU/ROUGE</span>
+                    <span class="k-desc">文本重合度。分别用于翻译和摘要，计算 n-gram 词汇重叠。</span>
+                  </div>
+                  <div class="k-item">
+                    <span class="k-label">Score</span>
+                    <span class="k-desc">智能打分。通常是 1-10 分，评价回答的质量、安全性或相关性。</span>
+                  </div>
+                </div>
+              </div>
+            </el-popover>
+            </div>
           
           <div class="toolbar-right">
-            <div class="filter-box" :class="{ active: showPrivateOnly }">
+             <div class="filter-box" :class="{ active: showPrivateOnly }">
               <span class="filter-label" @click="showPrivateOnly = !showPrivateOnly">
                 <el-icon class="mr-1"><Filter /></el-icon> 只看私有
               </span>
@@ -264,6 +348,7 @@ onMounted(() => {
               :prefix-icon="Search"
               clearable
               style="width: 200px; margin-right: 15px;"
+              @change="handleSearch"
             />
             
             <el-button type="primary" @click="dialogVisible = true">
@@ -272,64 +357,98 @@ onMounted(() => {
           </div>
         </div>
 
-        <el-table :data="paginatedDatasets" border style="width: 100%" stripe>
-          <el-table-column prop="id" label="ID" width="60" align="center" sortable />
+        <el-table :data="tableData" border style="width: 100%" stripe>
+           <el-table-column prop="id" label="ID" width="60" align="center" sortable />
 
-          <el-table-column label="名称" min-width="160" show-overflow-tooltip>
-            <template #default="scope">
-              <span style="font-weight: 600; color: #303133;">{{ scope.row.name }}</span>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="来源" width="110" align="center">
-            <template #default="scope">
-              <div v-if="scope.row.is_system" class="source-badge official"><el-icon><Medal /></el-icon> 官方</div>
-              <div v-else class="source-badge private"><el-icon><User /></el-icon> 私有</div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="包含配置" min-width="220">
-            <template #default="scope">
-              <div class="config-tags">
-                <el-tag 
-                  v-for="cfg in scope.row.configs" 
-                  :key="cfg.id" 
-                  :type="cfg.mode === 'gen' ? 'warning' : 'info'"
-                  size="small"
-                  effect="plain"
-                  class="mr-1"
-                >
-                  {{ cfg.mode.toUpperCase() }} ({{ cfg.display_metric }})
-                </el-tag>
-                <span v-if="!scope.row.configs?.length" style="color:#999; font-size:12px">暂无配置</span>
-              </div>
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="category" label="能力" width="110" align="center">
-            <template #default="scope">
-              <el-tag effect="light" type="success">{{ scope.row.category }}</el-tag>
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
-          
-          <el-table-column label="操作" width="180" align="center" fixed="right">
-            <template #default="scope">
-              <el-button-group>
-                <el-button size="small" :icon="View" @click="handleViewData(scope.row)" title="预览" />
-                <el-button size="small" :icon="Download" @click="handleDownload(scope.row)" title="下载" />
-                <el-button size="small" type="danger" :icon="Delete" @click="handleDelete(scope.row)" :disabled="scope.row.is_system" title="删除" />
-              </el-button-group>
-            </template>
-          </el-table-column>
+            <el-table-column label="名称" min-width="160" show-overflow-tooltip>
+              <template #default="scope">
+                <span style="font-weight: 600; color: #303133;">{{ scope.row.name }}</span>
+              </template>
+            </el-table-column>
+  
+            <el-table-column label="来源" width="110" align="center">
+              <template #default="scope">
+                <div v-if="scope.row.is_system" class="source-badge official"><el-icon><Medal /></el-icon> 官方</div>
+                <div v-else class="source-badge private"><el-icon><User /></el-icon> 私有</div>
+              </template>
+            </el-table-column>
+  
+            <el-table-column label="包含配置 (Config Details)" min-width="260">
+              <template #default="scope">
+                <div class="config-tags">
+                  <el-popover
+                    v-for="cfg in scope.row.configs"
+                    :key="cfg.id"
+                    placement="top"
+                    :width="260" 
+                    trigger="hover"
+                    popper-class="custom-popover"
+                  >
+                    <template #reference>
+                      <el-tag 
+                        :type="cfg.mode === 'gen' ? 'warning' : 'info'"
+                        size="small"
+                        effect="plain"
+                        class="mr-1 config-tag-item"
+                      >
+                        <span style="font-weight: bold;">{{ cfg.mode.toUpperCase() }}</span>
+                        <span style="margin: 0 4px; color: #ccc;">|</span>
+                        <span>{{ cfg.display_metric }}</span>
+                        <el-icon v-if="parseConfigInfo(cfg).isLLM" style="margin-left: 4px; color: #9b59b6;"><Cpu /></el-icon>
+                      </el-tag>
+                    </template>
+                    
+                    <div class="popover-wrapper">
+                      <div class="pop-header">
+                         <span class="pop-title" :title="cfg.config_name">{{ cfg.config_name }}</span>
+                         <el-tag size="small" :type="cfg.mode === 'gen' ? 'warning' : 'info'" effect="dark">{{ cfg.mode.toUpperCase() }}</el-tag>
+                      </div>
+                      <div class="pop-divider"></div>
+                      <div class="pop-body">
+                         <div class="pop-row">
+                            <span class="label">Evaluator</span>
+                            <span class="value code-box">{{ parseConfigInfo(cfg).evaluator }}</span>
+                         </div>
+                         <div class="pop-row">
+                            <span class="label">Metric</span>
+                            <span class="value">{{ cfg.display_metric }}</span>
+                         </div>
+                         <div class="pop-row">
+                            <span class="label">Prompt Ver</span>
+                            <span class="value">{{ cfg.prompt_version || 'Default' }}</span>
+                         </div>
+                      </div>
+                    </div>
+                  </el-popover>
+                  <span v-if="!scope.row.configs?.length" style="color:#999; font-size:12px">暂无配置</span>
+                </div>
+              </template>
+            </el-table-column>
+  
+            <el-table-column prop="category" label="能力" width="130" align="center">
+              <template #default="scope">
+                <el-tag effect="light" type="success">{{ scope.row.category }}</el-tag>
+              </template>
+            </el-table-column>
+  
+            <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
+            
+            <el-table-column label="操作" width="180" align="center" fixed="right">
+              <template #default="scope">
+                <el-button-group>
+                  <el-button size="small" :icon="View" @click="handleViewData(scope.row)" title="预览" />
+                  <el-button size="small" :icon="Download" @click="handleDownload(scope.row)" title="下载" />
+                  <el-button size="small" type="danger" :icon="Delete" @click="handleDelete(scope.row)" :disabled="scope.row.is_system" title="删除" />
+                </el-button-group>
+              </template>
+            </el-table-column>
         </el-table>
 
         <div class="pagination-container">
           <el-pagination
             background
             layout="total, prev, pager, next"
-            :total="filteredDatasets.length"
+            :total="totalItems"
             :page-size="pageSize"
             :current-page="currentPage"
             @current-change="handleCurrentChange"
@@ -337,9 +456,9 @@ onMounted(() => {
         </div>
       </el-main>
     </el-container>
-
+    
     <el-dialog v-model="dialogVisible" title="导入数据集" width="650px" destroy-on-close>
-      <el-form :model="form" label-position="top">
+       <el-form :model="form" label-position="top">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="数据集名称" required>
@@ -359,7 +478,6 @@ onMounted(() => {
 
         <div class="config-section">
           <div class="section-title">默认评测配置</div>
-          
           <el-row :gutter="20">
              <el-col :span="12">
                 <el-form-item label="数据集模式 (Data Mode)">
@@ -369,7 +487,6 @@ onMounted(() => {
                   </el-radio-group>
                 </el-form-item>
              </el-col>
-             
              <el-col :span="12">
                 <el-form-item label="评测方式 (Evaluator)">
                    <el-radio-group v-model="form.evaluator_type">
@@ -383,7 +500,6 @@ onMounted(() => {
                 </el-form-item>
              </el-col>
           </el-row>
-
           <el-row>
              <el-col :span="24">
                 <el-form-item label="主要指标 (Metric)">
@@ -403,7 +519,6 @@ onMounted(() => {
              </el-col>
           </el-row>
         </div>
-
         <el-form-item label="上传数据文件" style="margin-top: 15px;">
           <el-upload
             v-if="!uploadFile"
@@ -428,7 +543,6 @@ onMounted(() => {
             <el-button type="danger" link @click="removeFile"><el-icon><Delete /></el-icon> 删除</el-button>
           </div>
         </el-form-item>
-
         <div v-if="isPreviewing" style="text-align: center; margin: 10px 0;"><el-icon class="is-loading"><Loading /></el-icon> 解析中...</div>
         <div v-if="previewData.columns.length > 0" class="preview-box">
           <div style="font-size: 12px; color: #909399; margin-bottom: 5px;">Preview (Top 5 Rows):</div>
@@ -463,6 +577,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* ... (原有的样式) ... */
 .dataset-view { background: #fff; height: 100%; }
 .main-content { padding: 20px; display: flex; flex-direction: column; }
 .cap-header { padding: 15px 20px; font-weight: bold; color: #303133; border-bottom: 1px solid #eee; background: #f5f7fa; }
@@ -480,7 +595,33 @@ onMounted(() => {
 .source-badge { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; width: fit-content; margin: 0 auto; }
 .source-badge.official { background-color: #ecf5ff; color: #409eff; border: 1px solid #c6e2ff; }
 .source-badge.private { background-color: #f3e5f5; color: #7b1fa2; border: 1px solid #e1bee7; }
-.config-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.config-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.config-tag-item { cursor: pointer; display: flex; align-items: center; }
+
+/* Popover 内部样式 */
+.popover-wrapper { padding: 4px; }
+.pop-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.pop-title { font-weight: 700; color: #303133; font-size: 14px; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pop-divider { height: 1px; background: #eee; margin: 8px 0; }
+.pop-body { display: flex; flex-direction: column; gap: 8px; }
+.pop-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.pop-row .label { color: #909399; }
+.pop-row .value { color: #606266; font-weight: 500; }
+.code-box { font-family: monospace; background: #f0f2f5; padding: 2px 6px; border-radius: 4px; color: #d63384; font-size: 12px; }
+
+/* 🌟 新增：知识库样式 */
+.help-icon { margin-left: 10px; color: #909399; cursor: pointer; transition: color 0.3s; font-size: 18px; }
+.help-icon:hover { color: #409eff; }
+
+.knowledge-content { padding: 5px; }
+.k-section { margin-bottom: 12px; }
+.k-title { margin: 0 0 10px 0; font-size: 14px; color: #303133; font-weight: 700; border-left: 3px solid #409eff; padding-left: 8px; }
+.k-item { margin-bottom: 8px; display: flex; flex-direction: column; }
+.k-label { font-weight: bold; color: #555; font-size: 13px; margin-bottom: 2px; }
+.k-desc { color: #888; font-size: 12px; line-height: 1.4; }
+.k-divider { height: 1px; background: #f0f2f5; margin: 12px 0; }
+
+/* 其他样式 */
 .config-section { background-color: #f5f7fa; padding: 15px; border-radius: 4px; margin-bottom: 10px; }
 .section-title { font-size: 13px; font-weight: bold; color: #606266; margin-bottom: 10px; }
 .file-card { display: flex; justify-content: space-between; align-items: center; padding: 15px; border: 1px dashed #dcdfe6; border-radius: 6px; background-color: #f9fafc; }

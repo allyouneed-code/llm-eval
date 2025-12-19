@@ -4,14 +4,17 @@ import json
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import FileResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func, or_
+from sqlalchemy.orm import selectinload 
 from typing import List, Optional
 
 from app.core.database import get_session
-# 引入新模型
 from app.models.dataset import DatasetMeta, DatasetConfig
-# 引入新 Schema (包含 DatasetConfigCreate 校验逻辑)
-from app.schemas.dataset_schema import DatasetMetaRead, DatasetConfigCreate
+# 引入新定义的 Schema
+from app.schemas.dataset_schema import (
+    DatasetMetaRead, DatasetConfigCreate, 
+    DatasetPaginationResponse, CategoryStat
+)
 
 router = APIRouter()
 
@@ -107,6 +110,16 @@ def download_dataset_file(meta_id: int, session: Session = Depends(get_session))
 # 3. 核心接口：创建与读取
 # ==========================================
 
+@router.get("/stats", response_model=List[CategoryStat])
+def get_dataset_stats(session: Session = Depends(get_session)):
+    """获取每个分类下的数据集数量"""
+    # SQL: SELECT category, COUNT(*) FROM dataset_metas GROUP BY category
+    statement = select(DatasetMeta.category, func.count(DatasetMeta.id)).group_by(DatasetMeta.category)
+    results = session.exec(statement).all()
+    
+    stats = [{"category": row[0], "count": row[1]} for row in results]
+    return stats
+
 @router.post("/", response_model=DatasetMetaRead)
 def create_dataset(
     name: str = Form(...),
@@ -200,12 +213,55 @@ def create_dataset(
     session.refresh(meta)
     return meta
 
-@router.get("/", response_model=List[DatasetMetaRead])
-def read_datasets(session: Session = Depends(get_session)):
-    # 这里的 DatasetMetaRead 包含 configs 列表
-    # 确保 unique() 以避免 join 产生的重复行
-    datasets = session.exec(select(DatasetMeta)).unique().all()
-    return datasets
+@router.get("/", response_model=DatasetPaginationResponse)
+def read_datasets(
+    session: Session = Depends(get_session),
+    page: int = 1,
+    page_size: int = 10,
+    category: Optional[str] = None,
+    keyword: Optional[str] = None,
+    private_only: bool = False
+):
+    offset = (page - 1) * page_size
+    
+    # 1. 构建基础查询
+    query = select(DatasetMeta)
+    
+    # 2. 动态过滤
+    if category and category != 'All':
+        query = query.where(DatasetMeta.category == category)
+    
+    if keyword:
+        # 模糊搜索名称或描述
+        query = query.where(
+            or_(
+                DatasetMeta.name.contains(keyword),
+                DatasetMeta.description.contains(keyword)
+            )
+        )
+    
+    # 处理 "只看私有" 逻辑
+    # 这里的逻辑是：连接 DatasetConfig，查找路径中包含 data/datasets 的记录
+    if private_only:
+        query = query.join(DatasetConfig).where(DatasetConfig.file_path.contains("data/datasets"))
+        
+    # 3. 获取总数 (Total Count)
+    # 注意：为了性能，这里应该单独查 count，而不是查出所有数据再 len()
+    # 使用 func.count() 包装子查询或者直接查 id
+    # 简便起见，我们先用简单的方式，如果数据量极大需进一步优化 count 查询
+    count_statement = select(func.count()).select_from(query.subquery())
+    total = session.exec(count_statement).one()
+    
+    # 4. 应用分页与预加载
+    # selectinload 解决了 N+1 问题，一次性把 configs 抓出来
+    query = query.options(selectinload(DatasetMeta.configs))
+    query = query.offset(offset).limit(page_size)
+    
+    # 确保唯一性 (因为 join 可能导致重复，虽然 SQLModel 通常处理得很好)
+    # 如果 private_only 用了 join，这里 unique() 很重要
+    items = session.exec(query).unique().all()
+    
+    return DatasetPaginationResponse(total=total, items=items)
 
 @router.delete("/{meta_id}")
 def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
