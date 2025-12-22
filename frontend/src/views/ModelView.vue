@@ -1,41 +1,36 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
-import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Folder, Connection, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+// 🌟 1. 引入 API 方法
+import { getModels, createModel, deleteModel, validateModelName } from '@/api/model'
 
-// === 1. 数据定义 ===
+// === 数据定义 ===
 const tableData = ref([]) 
 const dialogVisible = ref(false)
 const submitting = ref(false)
 
-// 校验状态 (仅保留 name)
 const validationState = reactive({
-  name: null,   // null: 未校验, true: 通过, false: 失败
+  name: null, 
   nameMsg: ''
 })
 
-// 表单数据
 const form = reactive({
   name: '',
   path: '',
-  type: 'local', // 默认 local
+  type: 'local',
   param_size: '7B',
   description: ''
 })
 
-const API_BASE = 'http://127.0.0.1:8000/api/v1'
+// === 核心逻辑 ===
 
-// === 2. 核心逻辑 ===
-
-// 重置表单
 const resetForm = () => {
   form.name = ''
   form.path = ''
   form.type = 'local'
   form.param_size = '7B'
   form.description = ''
-  
   validationState.name = null
   validationState.nameMsg = ''
 }
@@ -45,22 +40,25 @@ const openDialog = () => {
   dialogVisible.value = true
 }
 
-// 获取列表
+// 🌟 2. 改造：获取列表
 const fetchModels = async () => {
   try {
-    const res = await axios.get(`${API_BASE}/models/`)
-    tableData.value = res.data
+    // request.js 已经解包了 response.data，这里直接拿到数据数组
+    const data = await getModels()
+    tableData.value = data
   } catch (error) {
-    ElMessage.error('获取模型列表失败')
+    // 拦截器已弹出全局错误，这里只需打日志或停止 loading，不必再 ElMessage.error
+    console.error(error)
   }
 }
 
-// --- 旅程图优化 A: 实时校验名称 (Input失去焦点时) ---
+// 🌟 3. 改造：实时校验名称
 const handleNameBlur = async () => {
   if (!form.name) return
   try {
-    const res = await axios.post(`${API_BASE}/models/validate/name`, { name: form.name })
-    if (res.data.unique) {
+    const data = await validateModelName(form.name)
+    // 假设后端返回 { unique: true/false }
+    if (data.unique) {
       validationState.name = true
       validationState.nameMsg = ''
     } else {
@@ -68,11 +66,12 @@ const handleNameBlur = async () => {
       validationState.nameMsg = '该模型名称已存在'
     }
   } catch (e) {
+    // 校验接口如果挂了，暂时不阻断用户，或者可以在这里重置状态
     console.error(e)
   }
 }
 
-// 提交注册
+// 🌟 4. 改造：提交注册
 const handleSubmit = async () => {
   if (!form.name || !form.path) {
     return ElMessage.warning('请填写完整信息')
@@ -83,25 +82,27 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-    await axios.post(`${API_BASE}/models/`, form)
+    await createModel(form)
     ElMessage.success('注册成功')
     dialogVisible.value = false
     fetchModels()
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '注册失败')
+    // 如果需要针对特定错误码做处理（比如 400 参数错误），可以在这里 catch
+    // 否则通用错误已被拦截
   } finally {
     submitting.value = false
   }
 }
 
-// 删除模型
+// 🌟 5. 改造：删除模型
 const handleDelete = (row) => {
   ElMessageBox.confirm(`确定要删除模型 "${row.name}" 吗?`, '警告', { type: 'warning' })
     .then(async () => {
-      await axios.delete(`${API_BASE}/models/${row.id}`)
+      await deleteModel(row.id)
       ElMessage.success('删除成功')
       fetchModels()
     })
+    .catch(() => {}) // 取消删除不做处理
 }
 
 onMounted(fetchModels)
@@ -139,7 +140,6 @@ onMounted(fetchModels)
     </el-table>
 
     <el-dialog v-model="dialogVisible" title="模型资产接入" width="600px" destroy-on-close>
-      
       <div style="margin-bottom: 20px; padding: 0 10px;">
         <el-steps :active="1" simple>
           <el-step title="基础信息" icon="Edit" />
@@ -148,7 +148,6 @@ onMounted(fetchModels)
       </div>
 
       <el-form :model="form" label-position="top" size="large">
-        
         <el-form-item label="接入方式">
           <div class="mode-selection">
             <div 
@@ -206,7 +205,6 @@ onMounted(fetchModels)
             :placeholder="form.type === 'local' ? '/data/models/llama3...' : 'http://192.168.1.100:8000/v1'" 
           />
         </el-form-item>
-
       </el-form>
       
       <template #footer>
@@ -222,6 +220,7 @@ onMounted(fetchModels)
 </template>
 
 <style scoped>
+/* 样式保持不变 */
 .mode-selection {
   display: flex;
   gap: 20px;
