@@ -1,0 +1,22 @@
+LLM Eval Platform
+大模型评测平台，提供可视化的数据集管理、模型评测任务调度及结果分析功能。
+
+1.环境要求
+Docker & Docker Compose
+
+2.快速部署 (Docker)
+无需配置复杂的本地环境，一键启动所有服务（前端、后端、数据库、Redis）。
+
+（1）准备工作
+确保你的机器上安装了 Docker 和 Docker Compose。
+
+（2）构建并启动
+在项目根目录下运行：
+docker-compose up --build -d
+
+3.访问服务
+启动完成后，你可以通过浏览器访问前端页面：
+http://localhost
+
+4. 停止服务
+docker-compose down

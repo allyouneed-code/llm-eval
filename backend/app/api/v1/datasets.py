@@ -241,9 +241,14 @@ def read_datasets(
         )
     
     # 处理 "只看私有" 逻辑
-    # 这里的逻辑是：连接 DatasetConfig，查找路径中包含 data/datasets 的记录
     if private_only:
-        query = query.join(DatasetConfig).where(DatasetConfig.file_path.contains("data/datasets"))
+        # ❌ 旧逻辑: query = query.join(DatasetConfig).where(DatasetConfig.file_path.contains("data/datasets"))
+        # 此旧逻辑依赖文件路径包含 "data/datasets"，但在 Windows 上路径可能是反斜杠 "data\datasets"，
+        # 导致 contains("data/datasets") 匹配失败。
+        
+        # ✅ 新逻辑: 只要不是官方数据集 (official:// 开头)，就是私有数据集
+        # 这通过使用 not_like 排除法，完美兼容 Windows 和 Linux 路径差异
+        query = query.join(DatasetConfig).where(DatasetConfig.file_path.not_like("official://%"))
         
     # 3. 获取总数 (Total Count)
     # 注意：为了性能，这里应该单独查 count，而不是查出所有数据再 len()

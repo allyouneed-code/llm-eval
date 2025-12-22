@@ -6,13 +6,13 @@ import * as echarts from 'echarts'
 import { 
   VideoPlay, Refresh, Folder, Search, 
   MagicStick, Collection, Monitor, Lock, DataLine,
-  Medal, User, Odometer, Setting
+  Medal, User, Odometer, Setting, Filter 
 } from '@element-plus/icons-vue'
 
 // === 1. 数据定义 ===
 const tableData = ref([])
 const modelList = ref([])
-const datasetMetas = ref([]) // 🌟 核心变化：存储 Meta 列表，而非扁平的 Configs
+const datasetMetas = ref([]) 
 
 const createDialogVisible = ref(false)
 const detailDrawerVisible = ref(false)
@@ -21,23 +21,21 @@ const submitting = ref(false)
 const terminalLogs = ref([])
 let logInterval = null
 
+// 加载状态
+const isDataLoading = ref(false) // 弹窗内的加载状态
+
 // 表单数据
 const form = reactive({
   model_id: null,
-  // 最终提交给后端的依然是 config_ids
   config_ids: [] 
 })
 
-// 🌟 UI 辅助状态：记录用户在界面上选中的 DatasetMeta ID
-// 结构: { [metaId: number]: boolean }
+// UI 辅助状态
 const selectedMetaMap = reactive({})
-
-// 🌟 UI 辅助状态：记录用户为每个数据集选中的具体模式
-// 结构: { [metaId: number]: configId }
 const selectedConfigMap = reactive({})
-
 const activeNames = ref([]) 
 const searchText = ref('')
+const showPrivateOnly = ref(false)
 const API_BASE = 'http://127.0.0.1:8000/api/v1'
 
 // === 2. 核心计算属性 ===
@@ -47,24 +45,22 @@ const selectedModelInfo = computed(() => {
   return modelList.value.find(m => m.id === form.model_id)
 })
 
-/**
- * 🌟 核心逻辑：按 Capability 分组 DatasetMeta
- */
 const filteredGroupedMetas = computed(() => {
   const groups = {}
   if (!datasetMetas.value.length) return groups
   
   const keyword = searchText.value.toLowerCase().trim()
   
-  // 1. 过滤 Meta
   const filtered = datasetMetas.value.filter(meta => {
+    if (showPrivateOnly.value && meta.is_system) {
+      return false
+    }
+
     if (!keyword) return true
-    // 搜索匹配：名称、能力、描述
     return meta.name.toLowerCase().includes(keyword) || 
            meta.category.toLowerCase().includes(keyword)
   })
 
-  // 2. 分组
   filtered.forEach(meta => {
     const cap = meta.category || 'Others'
     if (!groups[cap]) groups[cap] = []
@@ -76,37 +72,31 @@ const filteredGroupedMetas = computed(() => {
 
 // === 3. 监听与交互逻辑 ===
 
-// 自动展开搜索结果
 watch(searchText, (newVal) => {
   if (newVal.trim()) {
     activeNames.value = Object.keys(filteredGroupedMetas.value)
   }
 })
 
-// 🌟 核心：当用户勾选/取消 Dataset 卡片时
+watch(showPrivateOnly, () => {
+   activeNames.value = Object.keys(filteredGroupedMetas.value)
+})
+
 const handleMetaCheckChange = (meta, isChecked) => {
   if (isChecked) {
-    // 选中：必须确保该 Meta 下有一个 Config 被选中
-    // 如果之前没选过模式，默认选第一个 Config
     if (!selectedConfigMap[meta.id] && meta.configs.length > 0) {
       selectedConfigMap[meta.id] = meta.configs[0].id
     }
-  } else {
-    // 取消选中：清理状态（可选，也可以保留以便下次勾选时恢复）
-    // delete selectedConfigMap[meta.id] 
   }
   syncToForm()
 }
 
-// 🌟 核心：当用户切换卡片内的模式（Config）时
 const handleConfigChange = (metaId, newConfigId) => {
-  // 只有当该数据集当前被勾选时，才需要触发同步
   if (selectedMetaMap[metaId]) {
     syncToForm()
   }
 }
 
-// 将 UI 状态 (MetaMap + ConfigMap) 同步到 Form.config_ids
 const syncToForm = () => {
   const ids = []
   for (const [metaId, isChecked] of Object.entries(selectedMetaMap)) {
@@ -130,11 +120,14 @@ const getCapIcon = (cap) => {
 
 const getCapColor = (cap) => {
   if (!cap) return '#909399'
-  if (cap.includes('Reasoning')) return '#E6A23C'
-  if (cap.includes('Knowledge')) return '#409EFF'
-  if (cap.includes('Coding')) return '#67C23A'
-  if (cap.includes('Safety')) return '#F56C6C'
-  return '#909399'
+  let hash = 0
+  for (let i = 0; i < cap.length; i++) {
+    hash = cap.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  const h = Math.abs(hash) % 360
+  const s = 65 + (Math.abs(hash) % 20) 
+  const l = 40 + (Math.abs(hash) % 15)
+  return `hsl(${h}, ${s}%, ${l}%)`
 }
 
 const getModelName = (id) => {
@@ -151,17 +144,13 @@ const getStatusType = (status) => {
   return map[status] || 'info'
 }
 
-// 解析任务列表显示的 Dataset 名称 (这里需要把 ID 转回名称)
 const getTaskDatasetDisplay = (taskRow) => {
+  // 如果 datasetMetas 还没加载（比如刚打开页面），这里可能会空，但这不影响
   const configIds = parseJSON(taskRow.datasets_list)
   if (!configIds.length) return []
   
-  // 这里的逻辑稍微复杂一点：因为 datasetMetas 里是嵌套的
-  // 我们需要构建一个快速查找表 ID -> Name
   const displayItems = []
-  
   configIds.forEach(cid => {
-    // 遍历所有 Meta 找这个 Config (性能暂不优化，数据量不大)
     for (const meta of datasetMetas.value) {
       const foundCfg = meta.configs.find(c => c.id === cid)
       if (foundCfg) {
@@ -175,7 +164,6 @@ const getTaskDatasetDisplay = (taskRow) => {
     }
   })
   
-  // 简单按能力分组用于前端展示
   const grouped = {}
   displayItems.forEach(item => {
     if (!grouped[item.cap]) grouped[item.cap] = []
@@ -185,50 +173,75 @@ const getTaskDatasetDisplay = (taskRow) => {
 }
 
 
-// === 5. 数据交互 ===
+// === 5. 数据交互 (核心优化部分) ===
 
-const fetchData = async () => {
+// 5.1 只拉取任务列表 (用于高频轮询)
+const fetchTasksOnly = async () => {
   try {
-    const [taskRes, modelRes, datasetRes] = await Promise.all([
-      axios.get(`${API_BASE}/tasks/`),
+    const res = await axios.get(`${API_BASE}/tasks/`)
+    tableData.value = res.data.sort((a, b) => b.id - a.id)
+  } catch (e) { console.error(e) }
+}
+
+// 5.2 拉取基础数据 (模型+数据集)
+const fetchBasicData = async () => {
+  try {
+    const [modelRes, datasetRes] = await Promise.all([
       axios.get(`${API_BASE}/models/`),
-      axios.get(`${API_BASE}/datasets/`) 
+      axios.get(`${API_BASE}/datasets/`, { params: { page_size: 10000 } }) 
     ])
     
-    tableData.value = taskRes.data.sort((a, b) => b.id - a.id)
     modelList.value = modelRes.data
     
-    // 🌟 直接使用 Meta 列表
-    datasetMetas.value = datasetRes.data.map(meta => ({
+    const rawItems = datasetRes.data.items || [] 
+    datasetMetas.value = rawItems.map(meta => ({
       ...meta,
-      // 模拟 System 判定
-      is_system: ['GSM8K', 'MMLU', 'C-Eval'].some(k => meta.name.includes(k))
+      is_system: meta.configs?.some(c => c.file_path && c.file_path.includes('official://')) 
+                 || ['GSM8K', 'MMLU', 'C-Eval'].some(k => meta.name.includes(k))
     }))
     
-    // 初始化 UI 状态
+    // 初始化默认选中
     datasetMetas.value.forEach(meta => {
-      // 默认选中第一个配置
       if (meta.configs && meta.configs.length > 0) {
         selectedConfigMap[meta.id] = meta.configs[0].id
       }
     })
-
-    if (activeNames.value.length === 0 && Object.keys(filteredGroupedMetas.value).length > 0) {
-       activeNames.value = Object.keys(filteredGroupedMetas.value)
-    }
   } catch (error) {
-    console.error('Fetch Error:', error)
+    ElMessage.error('基础数据加载失败')
   }
 }
 
+// 5.3 页面初始化 (全量)
+const initPageData = async () => {
+   await Promise.all([fetchTasksOnly(), fetchBasicData()])
+}
+
+// 🌟 核心优化：打开弹窗时不阻塞，而是异步加载
 const handleOpenCreate = () => {
-  createDialogVisible.value = true
-  // 重置表单
+  // 1. 先重置状态
   searchText.value = '' 
+  showPrivateOnly.value = false 
   form.model_id = null
   form.config_ids = []
   Object.keys(selectedMetaMap).forEach(k => selectedMetaMap[k] = false)
-  fetchData()
+  
+  // 2. 立即显示弹窗
+  createDialogVisible.value = true
+  isDataLoading.value = true
+
+  // 3. 异步延迟请求数据 (给 Vue 渲染弹窗的时间)
+  setTimeout(async () => {
+    try {
+      await fetchBasicData() // 刷新模型和数据集
+      
+      // 自动展开
+      if (activeNames.value.length === 0 && Object.keys(filteredGroupedMetas.value).length > 0) {
+        activeNames.value = Object.keys(filteredGroupedMetas.value)
+      }
+    } finally {
+      isDataLoading.value = false
+    }
+  }, 100)
 }
 
 const handleSubmit = async () => {
@@ -242,7 +255,7 @@ const handleSubmit = async () => {
     })
     ElMessage.success('🚀 评测任务已启动')
     createDialogVisible.value = false
-    fetchData()
+    fetchTasksOnly() // 提交后刷新列表
   } catch (e) {
     ElMessage.error(e.response?.data?.detail || '提交失败')
   } finally {
@@ -250,7 +263,7 @@ const handleSubmit = async () => {
   }
 }
 
-// === 6. 详情页与日志 (保持不变) ===
+// ... 详情页逻辑保持不变 ...
 const handleViewDetail = (row) => {
   currentTask.value = row
   detailDrawerVisible.value = true
@@ -294,10 +307,13 @@ const taskResult = computed(() => {
 
 // === 7. 生命周期 ===
 let pollingTimer = null
+
 onMounted(() => {
-  fetchData()
-  pollingTimer = setInterval(fetchData, 3000)
+  initPageData()
+  // 🌟 轮询改为只拉取 Task 列表，极大减轻负载
+  pollingTimer = setInterval(fetchTasksOnly, 3000)
 })
+
 onUnmounted(() => {
   if (pollingTimer) clearInterval(pollingTimer)
   if (logInterval) clearInterval(logInterval)
@@ -310,18 +326,16 @@ onUnmounted(() => {
       <el-button type="primary" size="large" @click="handleOpenCreate" class="create-btn">
         <el-icon class="mr-1"><VideoPlay /></el-icon> 新建评测任务
       </el-button>
-      <el-button :icon="Refresh" circle @click="fetchData" />
+      <el-button :icon="Refresh" circle @click="initPageData" />
     </div>
 
     <el-table :data="tableData" border style="width: 100%" stripe highlight-current-row class="main-table">
       <el-table-column prop="id" label="ID" width="70" align="center" sortable />
-      
       <el-table-column label="模型 (Model)" min-width="140">
         <template #default="scope">
           <div style="font-weight:600">{{ getModelName(scope.row.model_id) }}</div>
         </template>
       </el-table-column>
-
       <el-table-column label="评测配置 (Content)" min-width="320">
         <template #default="scope">
           <div class="content-container">
@@ -346,7 +360,6 @@ onUnmounted(() => {
           </div>
         </template>
       </el-table-column>
-
       <el-table-column label="状态" width="100" align="center">
         <template #default="scope">
           <el-tag :type="getStatusType(scope.row.status)" effect="light" size="small" round>
@@ -373,8 +386,8 @@ onUnmounted(() => {
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="createDialogVisible" title="新建评测任务" width="800px" top="5vh" :close-on-click-modal="false" class="custom-dialog">
-      <div class="dialog-body">
+    <el-dialog v-model="createDialogVisible" title="新建评测任务" width="1000px" top="5vh" :close-on-click-modal="false" class="custom-dialog">
+      <div class="dialog-body" v-loading="isDataLoading" element-loading-text="正在加载最新模型与数据集...">
         <el-form label-position="top">
           <div class="section-card">
             <div class="section-title">Step 1. 选择待测模型</div>
@@ -396,7 +409,20 @@ onUnmounted(() => {
             </div>
 
             <div class="search-bar">
-              <el-input v-model="searchText" placeholder="搜索数据集名称..." prefix-icon="Search" clearable />
+               <div class="filter-box" :class="{ active: showPrivateOnly }" @click="showPrivateOnly = !showPrivateOnly">
+                  <span class="filter-label">
+                    <el-icon class="mr-1"><Filter /></el-icon> 只看私有
+                  </span>
+                  <el-switch v-model="showPrivateOnly" size="small" style="--el-switch-on-color: #9b59b6;" @click.stop />
+               </div>
+
+               <el-input 
+                 v-model="searchText" 
+                 placeholder="搜索数据集名称..." 
+                 prefix-icon="Search" 
+                 clearable 
+                 style="width: 300px"
+               />
             </div>
             
             <div class="dataset-scroll-area">
@@ -504,72 +530,35 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* ... (保留上面的样式，只修改徽章颜色部分) ... */
-
-/* 🌟 修改点：统一徽章颜色 */
-.mini-badge { 
-  font-size: 10px; padding: 1px 4px; border-radius: 4px; font-weight: bold; height: 16px; line-height: 14px; 
-  flex-shrink: 0; 
-  margin-left: 5px;
-}
-
-/* 官方：改为蓝色系 (匹配 DatasetView) */
-.mini-badge.official { 
-  background-color: #ecf5ff; 
-  color: #409eff; 
-  border: 1px solid #c6e2ff; 
-}
-
-/* 私有：改为紫色系 (匹配 DatasetView) */
-.mini-badge.private { 
-  background-color: #f3e5f5; 
-  color: #7b1fa2; 
-  border: 1px solid #e1bee7; 
-}
-
-/* 官方数据集卡片的左侧边框也建议同步为蓝色，或者保持绿色以示区分？
-   为了视觉统一，建议官方卡片高亮也改为蓝色：
-*/
-.dataset-card.is-official { 
-  border-left: 3px solid #409EFF; /* 从 67C23A(绿) 改为 409EFF(蓝) */
-}
-
-/* ... (保留其他样式) ... */
+/* 样式与上一次保持一致 */
+.search-bar { margin-bottom: 10px; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+.filter-box { display: flex; align-items: center; background: #f4f4f5; padding: 4px 10px; border-radius: 16px; margin-right: 10px; cursor: pointer; transition: all 0.3s; border: 1px solid transparent; }
+.filter-box:hover { background: #ebeef5; }
+.filter-box.active { background: #f2ebfb; border-color: #d6bbf5; }
+.filter-label { font-size: 12px; color: #606266; margin-right: 8px; display: flex; align-items: center; }
+.filter-box.active .filter-label { color: #8e44ad; font-weight: bold; }
+.mini-badge { font-size: 10px; padding: 1px 4px; border-radius: 4px; font-weight: bold; height: 16px; line-height: 14px; flex-shrink: 0; margin-left: 5px; }
+.mini-badge.official { background-color: #ecf5ff; color: #409eff; border: 1px solid #c6e2ff; }
+.mini-badge.private { background-color: #f3e5f5; color: #7b1fa2; border: 1px solid #e1bee7; }
+.dataset-card.is-official { border-left: 3px solid #409EFF; }
 .dataset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 12px; background: #fafafa; }
-.dataset-card {
-  background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 10px;
-  display: flex; flex-direction: column; justify-content: space-between;
-  transition: all 0.2s;
-}
+.dataset-card { background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s; }
 .dataset-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.05); transform: translateY(-1px); }
 .dataset-card.is-selected { border-color: #409EFF; background-color: #ecf5ff; }
-
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-.card-title { 
-  font-weight: 600; font-size: 14px; color: #303133; line-height: 1.4; 
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; 
-  word-break: break-all;
-}
-
+.card-title { font-weight: 600; font-size: 14px; color: #303133; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
 .card-body { padding-top: 5px; border-top: 1px dashed #eee; display: flex; align-items: center; justify-content: space-between; }
-
 .mode-selector { display: flex; align-items: center; gap: 5px; width: 100%; }
 .mode-selector .label { font-size: 12px; color: #909399; }
 .mode-text { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 4px; }
 .mode-text.error { color: #F56C6C; }
-
 .header-actions { display: flex; justify-content: space-between; margin-bottom: 20px; }
 .content-container { display: flex; flex-direction: column; gap: 6px; }
 .cap-row { display: flex; align-items: flex-start; }
-.cap-header { 
-  display: flex; align-items: center; gap: 4px; width: 120px; flex-shrink: 0;
-  font-weight: bold; font-size: 13px; justify-content: flex-end; padding-right: 12px;
-  border-right: 2px solid #eee; margin-right: 12px; height: 24px;
-}
+.cap-header { display: flex; align-items: center; gap: 4px; width: 120px; flex-shrink: 0; font-weight: bold; font-size: 13px; justify-content: flex-end; padding-right: 12px; border-right: 2px solid #eee; margin-right: 12px; height: 24px; }
 .ds-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .section-card { background: #fff; padding: 15px; border: 1px solid #ebeef5; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
 .section-title { font-size: 15px; font-weight: bold; color: #303133; margin-bottom: 12px; border-left: 4px solid #409EFF; padding-left: 10px; display: flex; justify-content: space-between; }
-.search-bar { margin-bottom: 10px; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; }
 .dataset-scroll-area { max-height: 50vh; overflow-y: auto; padding-right: 5px; }
 .group-title { width: 100%; display: flex; align-items: center; }
 .count-badge { margin-left: auto; font-size: 12px; color: #999; margin-right: 10px; }
