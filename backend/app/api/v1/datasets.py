@@ -10,7 +10,6 @@ from typing import List, Optional
 
 from app.core.database import get_session
 from app.models.dataset import DatasetMeta, DatasetConfig
-# 引入新定义的 Schema
 from app.schemas.dataset_schema import (
     DatasetMetaRead, DatasetConfigCreate, 
     DatasetPaginationResponse, CategoryStat
@@ -57,11 +56,9 @@ def _extract_metric_name(eval_cfg_json: str, default: str = "Accuracy") -> str:
     """从 metric_config JSON 中提取主要的指标名称"""
     try:
         data = json.loads(eval_cfg_json)
-        # 兼容文档中的结构: evaluator -> type 或 evaluator: "AccEvaluator"
         evaluator = data.get('evaluator', {})
         etype = evaluator.get('type') if isinstance(evaluator, dict) else evaluator
         
-        # 简单的映射表
         s_type = str(etype)
         if 'AccEvaluator' in s_type: return 'Accuracy'
         if 'BleuEvaluator' in s_type: return 'BLEU'
@@ -82,7 +79,6 @@ def preview_dataset(file: UploadFile = File(...)):
 
 @router.get("/{meta_id}/preview")
 def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session)):
-    """预览数据集：默认预览该数据集下的第一个配置对应的文件"""
     meta = session.get(DatasetMeta, meta_id)
     if not meta or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到相关数据文件")
@@ -107,16 +103,13 @@ def download_dataset_file(meta_id: int, session: Session = Depends(get_session))
     return FileResponse(path=config.file_path, filename=filename, media_type='application/octet-stream')
 
 # ==========================================
-# 3. 核心接口：创建与读取
+# 3. 核心接口：创建与读取 (已重构支持多配置)
 # ==========================================
 
 @router.get("/stats", response_model=List[CategoryStat])
 def get_dataset_stats(session: Session = Depends(get_session)):
-    """获取每个分类下的数据集数量"""
-    # SQL: SELECT category, COUNT(*) FROM dataset_metas GROUP BY category
     statement = select(DatasetMeta.category, func.count(DatasetMeta.id)).group_by(DatasetMeta.category)
     results = session.exec(statement).all()
-    
     stats = [{"category": row[0], "count": row[1]} for row in results]
     return stats
 
@@ -126,19 +119,15 @@ def create_dataset(
     category: str = Form(...),
     description: Optional[str] = Form(None),
     
-    # === 配置相关字段 ===
-    mode: str = Form("gen"),
-    # 接收完整的 JSON 字符串配置
-    reader_cfg: str = Form('{"input_columns":["input"], "output_column":"target"}'), 
-    infer_cfg: str = Form('{}'),
-    metric_config: str = Form('{"evaluator": {"type": "AccEvaluator"}}'),
+    # 🔄 变更：接收 JSON 列表字符串，不再接收散装参数
+    # 格式示例：[{"config_name": "v1", "mode": "gen", "reader_cfg": "...", "post_process_cfg": "..."}]
+    configs_json: str = Form(...), 
     
     file: UploadFile = File(...),
     session: Session = Depends(get_session)
 ):
     """
-    创建数据集 (Meta) + 默认配置 (Config) + 上传文件
-    此处集成了 Pydantic 校验逻辑
+    创建数据集 (Meta) + 批量创建配置 (Configs) + 上传文件
     """
     
     # 1. 检查或创建元数据 (DatasetMeta)
@@ -156,8 +145,9 @@ def create_dataset(
         session.refresh(meta)
     
     # 2. 保存文件 (物理存储)
+    # 优化：文件名不再绑定 mode，改为 base 或直接使用原始扩展名
     file_ext = os.path.splitext(file.filename)[1]
-    save_name = f"{name}_{mode}{file_ext}"
+    save_name = f"{name}_base{file_ext}" # 使用 _base 后缀表示这是通用源文件
     save_path = os.path.join(UPLOAD_DIR, save_name)
     abs_path = os.path.abspath(save_path)
     
@@ -165,50 +155,72 @@ def create_dataset(
     with open(save_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
-    # 3. 准备配置数据
-    # 🌟 自动提取 Display Metric
-    auto_metric = _extract_metric_name(metric_config, default="Accuracy")
-    
-    config_data = {
-        "meta_id": meta.id,
-        "config_name": f"{name}_{mode}",
-        "mode": mode,
-        "file_path": abs_path,
-        "reader_cfg": reader_cfg,
-        "infer_cfg": infer_cfg,
-        "metric_config": metric_config,
-        "display_metric": auto_metric
-    }
-
-    # 4. 🌟 执行 Pydantic 校验
-    # 如果 reader_cfg 缺少字段，或 JSON 格式错误，这里会直接抛出 422 错误
+    # 3. 解析并批量处理配置
     try:
-        validated_config = DatasetConfigCreate(**config_data)
-    except ValueError as e:
-        # 删除已上传的垃圾文件
-        if os.path.exists(save_path):
-            os.remove(save_path)
-        raise HTTPException(status_code=400, detail=f"配置校验失败: {str(e)}")
+        configs_list = json.loads(configs_json)
+        if not isinstance(configs_list, list):
+            raise ValueError("configs_json must be a list")
+    except Exception as e:
+        # 如果解析失败，清理刚上传的文件（如果是新建的）
+        # 这里简单起见暂不删除，因为 meta 可能已存在
+        raise HTTPException(status_code=400, detail=f"配置格式错误: {str(e)}")
 
-    # 5. 存入数据库
-    # 检查是否已存在同名同模式的配置
-    existing_config = next((c for c in meta.configs if c.mode == mode), None)
-    
-    if existing_config:
-        # 更新现有配置
-        existing_config.file_path = validated_config.file_path
-        existing_config.reader_cfg = validated_config.reader_cfg
-        existing_config.infer_cfg = validated_config.infer_cfg
-        existing_config.metric_config = validated_config.metric_config
-        existing_config.display_metric = validated_config.display_metric
-        session.add(existing_config)
-    else:
-        # 创建新配置
-        # 注意：这里使用 validated_config.dict() 来确保使用的是清洗后的数据
-        # 但 exclude 该 model 不包含的字段 (如 meta_id 已经在 db model 里定义了)
-        db_config = DatasetConfig(**validated_config.model_dump())
-        session.add(db_config)
-    
+    processed_count = 0
+    errors = []
+
+    for cfg_data in configs_list:
+        try:
+            # A. 自动补全必要字段
+            cfg_data["meta_id"] = meta.id
+            cfg_data["file_path"] = abs_path
+            
+            # B. 确保 config_name 存在，若无则自动生成
+            if not cfg_data.get("config_name"):
+                mode_suffix = cfg_data.get("mode", "gen")
+                cfg_data["config_name"] = f"{name}_{mode_suffix}"
+                
+            # C. 自动提取 Display Metric (如果前端没传)
+            if not cfg_data.get("display_metric"):
+                cfg_data["display_metric"] = _extract_metric_name(
+                    cfg_data.get("metric_config", "{}")
+                )
+
+            # D. Pydantic 校验 (包含对 post_process_cfg 等新字段的校验)
+            validated_config = DatasetConfigCreate(**cfg_data)
+            
+            # E. 查重与入库
+            # 检查该 Meta 下是否已存在同名配置
+            existing = next((c for c in meta.configs if c.config_name == validated_config.config_name), None)
+            
+            if existing:
+                # 更新模式
+                existing.mode = validated_config.mode
+                existing.file_path = validated_config.file_path # 更新路径
+                existing.reader_cfg = validated_config.reader_cfg
+                existing.infer_cfg = validated_config.infer_cfg
+                existing.metric_config = validated_config.metric_config
+                existing.display_metric = validated_config.display_metric
+                
+                # 🆕 更新新字段
+                existing.post_process_cfg = validated_config.post_process_cfg
+                existing.few_shot_cfg = validated_config.few_shot_cfg
+                
+                session.add(existing)
+            else:
+                # 创建模式
+                db_config = DatasetConfig(**validated_config.model_dump())
+                session.add(db_config)
+            
+            processed_count += 1
+            
+        except Exception as e:
+            errors.append(f"Config '{cfg_data.get('config_name', 'unknown')}': {str(e)}")
+            continue
+
+    if processed_count == 0 and errors:
+        # 如果一个都没成功，抛出第一个错误
+        raise HTTPException(status_code=400, detail=f"导入失败: {errors[0]}")
+
     session.commit()
     session.refresh(meta)
     return meta
@@ -224,15 +236,12 @@ def read_datasets(
 ):
     offset = (page - 1) * page_size
     
-    # 1. 构建基础查询
     query = select(DatasetMeta)
     
-    # 2. 动态过滤
     if category and category != 'All':
         query = query.where(DatasetMeta.category == category)
     
     if keyword:
-        # 模糊搜索名称或描述
         query = query.where(
             or_(
                 DatasetMeta.name.contains(keyword),
@@ -240,30 +249,14 @@ def read_datasets(
             )
         )
     
-    # 处理 "只看私有" 逻辑
     if private_only:
-        # ❌ 旧逻辑: query = query.join(DatasetConfig).where(DatasetConfig.file_path.contains("data/datasets"))
-        # 此旧逻辑依赖文件路径包含 "data/datasets"，但在 Windows 上路径可能是反斜杠 "data\datasets"，
-        # 导致 contains("data/datasets") 匹配失败。
-        
-        # ✅ 新逻辑: 只要不是官方数据集 (official:// 开头)，就是私有数据集
-        # 这通过使用 not_like 排除法，完美兼容 Windows 和 Linux 路径差异
         query = query.join(DatasetConfig).where(DatasetConfig.file_path.not_like("official://%"))
         
-    # 3. 获取总数 (Total Count)
-    # 注意：为了性能，这里应该单独查 count，而不是查出所有数据再 len()
-    # 使用 func.count() 包装子查询或者直接查 id
-    # 简便起见，我们先用简单的方式，如果数据量极大需进一步优化 count 查询
     count_statement = select(func.count()).select_from(query.subquery())
     total = session.exec(count_statement).one()
     
-    # 4. 应用分页与预加载
-    # selectinload 解决了 N+1 问题，一次性把 configs 抓出来
     query = query.options(selectinload(DatasetMeta.configs))
     query = query.offset(offset).limit(page_size)
-    
-    # 确保唯一性 (因为 join 可能导致重复，虽然 SQLModel 通常处理得很好)
-    # 如果 private_only 用了 join，这里 unique() 很重要
     items = session.exec(query).unique().all()
     
     return DatasetPaginationResponse(total=total, items=items)
@@ -274,7 +267,6 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
     if not meta:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    # 级联删除文件
     for config in meta.configs:
         if os.path.exists(config.file_path):
             try:

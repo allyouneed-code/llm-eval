@@ -3,6 +3,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
 # 引入 Link 表
 from app.models.links import TaskDatasetLink
+from app.models.scheme import SchemeDatasetLink, EvaluationScheme
 
 if TYPE_CHECKING:
     from app.models.task import EvaluationTask
@@ -50,6 +51,18 @@ class DatasetConfig(SQLModel, table=True):
     infer_cfg: str = Field(default="{}")
     metric_config: str = Field(default="{}") 
     
+    # 后处理配置 (对应 OpenCompass 的 pred_postprocessor)
+    # 例如: {"type": "opencompass.utils.text_postprocessors.first_capital_postprocess"}
+    post_process_cfg: str = Field(default="{}") 
+    
+    # 少样本配置 (对应 OpenCompass 的 few_shot)
+    # 例如: {"count": 5, "template": "..."}
+    few_shot_cfg: str = Field(default="{}") 
+    
+    # =========================
+    # 🆕 新增字段 End
+    # =========================
+    
     metrics: List["EvaluationMetric"] = Relationship(back_populates="config")
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -58,6 +71,10 @@ class DatasetConfig(SQLModel, table=True):
     tasks: List["EvaluationTask"] = Relationship(back_populates="datasets", link_model=TaskDatasetLink)
     results: List["EvaluationResult"] = Relationship(back_populates="dataset_config")
 
+    schemes: List[EvaluationScheme] = Relationship(
+        back_populates="configs", 
+        link_model=SchemeDatasetLink
+    )
 
 # ==========================================
 # 3. 评估指标表 (EvaluationMetric)

@@ -26,6 +26,11 @@ const route = useRoute() // <--- 修改点 2：获取当前路由对象
             <el-icon><Files /></el-icon>
             <span>数据集管理</span>
           </el-menu-item>
+
+          <el-menu-item index="/schemes">
+            <el-icon><List /></el-icon>
+            <span>评测方案</span>
+          </el-menu-item>
           
           <el-menu-item index="/tasks">
             <el-icon><DataLine /></el-icon>

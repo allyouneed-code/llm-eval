@@ -23,6 +23,11 @@ const router = createRouter({
       path: '/tasks', // 新增
       name: 'tasks',
       component: () => import('../views/TaskView.vue')
+    },
+    { 
+      path: '/schemes', 
+      name: 'Schemes', 
+      component: () => import('../views/SchemeView.vue')
     }
   ]
 })

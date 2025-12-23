@@ -1,126 +1,106 @@
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Folder, Filter, Setting } from '@element-plus/icons-vue'
+import { getModels } from '@/api/model'
+import { getDatasets } from '@/api/dataset'
 import { createTask } from '@/api/task'
-import { getCapColor } from '@/utils/style'
+import { getSchemes } from '@/api/scheme' // 🆕
 
 const props = defineProps({
-  visible: { type: Boolean, default: false },
-  models: { type: Array, default: () => [] },
-  datasets: { type: Array, default: () => [] }
+  visible: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:visible', 'success'])
 
-// 表单与UI状态
+const activeTab = ref('scheme') // 默认使用方案创建 'scheme' | 'custom'
 const submitting = ref(false)
-const searchText = ref('')
-const showPrivateOnly = ref(false)
-const activeNames = ref([]) 
-const selectedMetaMap = reactive({})
-const selectedConfigMap = reactive({})
 
+// 表单数据
 const form = reactive({
-  model_id: null,
-  config_ids: []
+  model_id: '',
+  scheme_id: '',   // Tab 1 用
+  config_ids: []   // Tab 2 用
 })
 
-// 监听打开，初始化状态
+// 数据源
+const models = ref([])
+const schemes = ref([])
+const datasets = ref([]) // 用于 Tab 2 的树形选择
+
+// 1. 初始化加载
+const initData = async () => {
+  // 加载模型
+  const modelRes = await getModels()
+  models.value = modelRes
+  
+  // 加载方案
+  const schemeRes = await getSchemes()
+  schemes.value = schemeRes
+  
+  // 加载数据集 (用于 Tab 2 和 Tab 1 的预览)
+  const datasetRes = await getDatasets({ page: 1, page_size: 100 })
+  datasets.value = datasetRes.items
+}
+
 watch(() => props.visible, (val) => {
   if (val) {
-    initForm()
+    form.model_id = ''
+    form.scheme_id = ''
+    form.config_ids = []
+    activeTab.value = 'scheme'
+    initData()
   }
 })
 
-// 计算属性：分组过滤后的数据集
-const filteredGroupedMetas = computed(() => {
-  const groups = {}
-  if (!props.datasets.length) return groups
-  
-  const keyword = searchText.value.toLowerCase().trim()
-  
-  const filtered = props.datasets.filter(meta => {
-    if (showPrivateOnly.value && meta.is_system) return false
-    if (!keyword) return true
-    return meta.name.toLowerCase().includes(keyword) || 
-           meta.category.toLowerCase().includes(keyword)
-  })
-
-  filtered.forEach(meta => {
-    const cap = meta.category || 'Others'
-    if (!groups[cap]) groups[cap] = []
-    groups[cap].push(meta)
-  })
-  
-  return groups
+// Tab 1: 选定方案后，计算预览信息
+const currentScheme = computed(() => {
+  return schemes.value.find(s => s.id === form.scheme_id)
+})
+const schemePreviewCount = computed(() => {
+  return currentScheme.value ? currentScheme.value.dataset_config_ids.length : 0
 })
 
-// 自动展开/收起逻辑
-watch([searchText, showPrivateOnly], ([txt]) => {
-  if (txt?.trim() || showPrivateOnly.value) {
-    activeNames.value = Object.keys(filteredGroupedMetas.value)
-  }
+// Tab 2: 树形数据转换
+const treeData = computed(() => {
+  return datasets.value.map(meta => ({
+    label: `[${meta.category}] ${meta.name}`,
+    value: `meta-${meta.id}`,
+    children: meta.configs.map(cfg => ({
+      label: `${cfg.config_name} (${cfg.display_metric})`,
+      value: cfg.id // 实际选中的是这个 ID
+    }))
+  }))
 })
-
-const initForm = () => {
-  searchText.value = ''
-  showPrivateOnly.value = false
-  form.model_id = null
-  form.config_ids = []
-  Object.keys(selectedMetaMap).forEach(k => delete selectedMetaMap[k])
-  Object.keys(selectedConfigMap).forEach(k => delete selectedConfigMap[k])
-  
-  // 初始化默认选中配置
-  props.datasets.forEach(meta => {
-    if (meta.configs && meta.configs.length > 0) {
-      selectedConfigMap[meta.id] = meta.configs[0].id
-    }
-  })
-}
-
-const handleMetaCheckChange = (meta, isChecked) => {
-  if (isChecked) {
-    if (!selectedConfigMap[meta.id] && meta.configs.length > 0) {
-      selectedConfigMap[meta.id] = meta.configs[0].id
-    }
-  }
-  syncToForm()
-}
-
-const handleConfigChange = (metaId) => {
-  if (selectedMetaMap[metaId]) {
-    syncToForm()
-  }
-}
-
-const syncToForm = () => {
-  const ids = []
-  for (const [metaId, isChecked] of Object.entries(selectedMetaMap)) {
-    if (isChecked) {
-      const configId = selectedConfigMap[metaId]
-      if (configId) ids.push(configId)
-    }
-  }
-  form.config_ids = ids
-}
 
 const handleSubmit = async () => {
-  if (!form.model_id || form.config_ids.length === 0) {
-    return ElMessage.warning('请至少选择一个模型和一个评测配置')
+  if (!form.model_id) return ElMessage.warning('请选择评测模型')
+
+  const payload = {
+    model_id: form.model_id,
+    scheme_id: null,
+    config_ids: []
   }
-  
+
+  if (activeTab.value === 'scheme') {
+    if (!form.scheme_id) return ElMessage.warning('请选择一个评测方案')
+    payload.scheme_id = form.scheme_id
+    // config_ids 留空，后端会自动填充
+  } else {
+    if (form.config_ids.length === 0) return ElMessage.warning('请至少选择一个数据集')
+    // 过滤掉父节点 (meta-xx)，只保留数字 ID
+    const realIds = form.config_ids.filter(id => typeof id === 'number')
+    if (realIds.length === 0) return ElMessage.warning('请选择具体的配置项')
+    payload.config_ids = realIds
+  }
+
   submitting.value = true
   try {
-    await createTask({
-      model_id: form.model_id,
-      config_ids: form.config_ids
-    })
-    ElMessage.success('🚀 评测任务已启动')
+    await createTask(payload)
+    ElMessage.success('评测任务创建成功')
     emit('update:visible', false)
     emit('success')
   } catch (e) {
-    // 错误处理
+    // console.error(e)
   } finally {
     submitting.value = false
   }
@@ -129,127 +109,76 @@ const handleSubmit = async () => {
 
 <template>
   <el-dialog 
-    :model-value="visible" 
-    @update:model-value="(val) => emit('update:visible', val)"
     title="新建评测任务" 
-    width="1000px" 
-    top="5vh" 
-    :close-on-click-modal="false" 
-    class="custom-dialog"
+    :model-value="visible"
+    @update:model-value="val => emit('update:visible', val)"
+    width="600px"
   >
-    <div class="dialog-body">
-      <el-form label-position="top">
-        <div class="section-card">
-          <div class="section-title">Step 1. 选择待测模型</div>
-          <el-select v-model="form.model_id" placeholder="搜索模型..." style="width: 100%" size="large" filterable>
-            <template #prefix><el-icon><Search /></el-icon></template>
-            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id">
-              <div class="model-option">
-                <span class="model-name">{{ m.name }}</span>
-                <span class="model-path-opt"><el-icon><Folder /></el-icon> {{ m.path }}</span>
-              </div>
-            </el-option>
-          </el-select>
-        </div>
+    <el-form label-position="top">
+      <el-form-item label="待测模型 (Model)" required>
+        <el-select v-model="form.model_id" placeholder="请选择模型" style="width: 100%">
+          <el-option 
+            v-for="m in models" 
+            :key="m.id" 
+            :label="m.name" 
+            :value="m.id" 
+          />
+        </el-select>
+      </el-form-item>
 
-        <div class="section-card" style="margin-top: 15px; display: flex; flex-direction: column;">
-          <div class="section-title">
-            Step 2. 选择数据集 (按能力)
-            <span class="sub-text">已选配置: {{ form.config_ids.length }}</span>
-          </div>
-
-          <div class="search-bar">
-             <div class="filter-box" :class="{ active: showPrivateOnly }" @click="showPrivateOnly = !showPrivateOnly">
-                <span class="filter-label">
-                  <el-icon class="mr-1"><Filter /></el-icon> 只看私有
-                </span>
-                <el-switch v-model="showPrivateOnly" size="small" style="--el-switch-on-color: #9b59b6;" @click.stop />
-             </div>
-
-             <el-input 
-               v-model="searchText" 
-               placeholder="搜索数据集名称..." 
-               prefix-icon="Search" 
-               clearable 
-               style="width: 300px"
-             />
-          </div>
-          
-          <div class="dataset-scroll-area">
-            <el-collapse v-model="activeNames">
-              <el-collapse-item v-for="(metas, capability) in filteredGroupedMetas" :key="capability" :name="capability">
-                <template #title>
-                  <div class="group-title">
-                    <el-tag :color="getCapColor(capability)" effect="dark" style="border:none; color:white" round size="small" class="mr-1">
-                      {{ capability }}
-                    </el-tag>
-                    <span class="count-badge">{{ metas.length }} datasets</span>
-                  </div>
-                </template>
-                
-                <div class="dataset-grid">
-                  <div 
-                    v-for="meta in metas" 
-                    :key="meta.id" 
-                    class="dataset-card"
-                    :class="{ 'is-selected': selectedMetaMap[meta.id], 'is-official': meta.is_system }"
-                  >
-                    <div class="card-header">
-                      <el-checkbox 
-                        v-model="selectedMetaMap[meta.id]" 
-                        @change="(val) => handleMetaCheckChange(meta, val)"
-                      >
-                        <span class="card-title" :title="meta.name">{{ meta.name }}</span>
-                      </el-checkbox>
-                      
-                      <div v-if="meta.is_system" class="mini-badge official">Off.</div>
-                      <div v-else class="mini-badge private">Pri.</div>
-                    </div>
-                    
-                    <div class="card-body">
-                       <div v-if="meta.configs && meta.configs.length > 1" class="mode-selector">
-                          <span class="label">Mode:</span>
-                          <el-select 
-                            v-model="selectedConfigMap[meta.id]" 
-                            size="small" 
-                            style="width: 100px"
-                            @change="handleConfigChange(meta.id)"
-                            :disabled="!selectedMetaMap[meta.id]"
-                          >
-                             <el-option 
-                               v-for="cfg in meta.configs" 
-                               :key="cfg.id" 
-                               :label="cfg.mode.toUpperCase()" 
-                               :value="cfg.id" 
-                             />
-                          </el-select>
-                       </div>
-                       <div v-else-if="meta.configs && meta.configs.length === 1" class="mode-text">
-                          <el-icon><Setting /></el-icon> 
-                          <span>Mode: {{ meta.configs[0].mode.toUpperCase() }}</span>
-                       </div>
-                       <div v-else class="mode-text error">
-                          暂无配置
-                       </div>
-                    </div>
-                  </div>
-                </div>
-              </el-collapse-item>
-            </el-collapse>
+      <el-tabs v-model="activeTab" type="border-card" class="mb-4">
+        
+        <el-tab-pane label="引用方案 (推荐)" name="scheme">
+          <div class="p-2">
+            <el-form-item label="选择方案" style="margin-bottom: 10px;">
+              <el-select v-model="form.scheme_id" placeholder="选择预设的 Benchmark..." style="width: 100%">
+                <el-option 
+                  v-for="s in schemes" 
+                  :key="s.id" 
+                  :label="s.name" 
+                  :value="s.id" 
+                />
+              </el-select>
+            </el-form-item>
             
-            <div v-if="!Object.keys(filteredGroupedMetas).length" class="empty-tip">未找到匹配的数据集</div>
+            <div v-if="currentScheme" class="bg-gray-50 p-3 rounded text-sm text-gray-600">
+              <div class="font-bold mb-1">方案详情：</div>
+              <div class="mb-1">{{ currentScheme.description || '无描述' }}</div>
+              <div>
+                包含数据集配置：
+                <el-tag type="success" size="small">{{ schemePreviewCount }} 个</el-tag>
+              </div>
+            </div>
+            <div v-else class="text-gray-400 text-xs mt-2">
+              <el-icon><InfoFilled /></el-icon> 选择方案后将自动加载其中定义的所有数据集配置。
+            </div>
           </div>
-        </div>
-      </el-form>
-    </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="自由组合 (Custom)" name="custom">
+          <div class="p-2">
+            <el-form-item label="勾选数据集配置" style="margin-bottom: 0;">
+              <el-tree-select
+                v-model="form.config_ids"
+                :data="treeData"
+                multiple
+                show-checkbox
+                collapse-tags
+                placeholder="请展开分类勾选具体配置..."
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+
+    </el-form>
 
     <template #footer>
-      <div class="dialog-footer">
-        <el-button @click="emit('update:visible', false)" size="large">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitting" size="large" style="width: 150px;">
-          立即启动 ({{ form.config_ids.length }})
-        </el-button>
-      </div>
+      <el-button @click="emit('update:visible', false)">取消</el-button>
+      <el-button type="primary" :loading="submitting" @click="handleSubmit">
+        立即评测
+      </el-button>
     </template>
   </el-dialog>
 </template>

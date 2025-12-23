@@ -18,6 +18,7 @@ class EvaluationTask(SQLModel, table=True):
     # --- 旧字段 (暂时保留，为了兼容前端) ---
     datasets_list: str 
     # ----------------------------------
+    scheme_id: Optional[int] = Field(default=None) #关联的方案ID
 
     result_summary: Optional[str] = Field(default=None)
     report_path: Optional[str] = Field(default=None)

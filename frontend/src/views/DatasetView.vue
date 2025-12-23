@@ -134,7 +134,6 @@ const handleDownload = (row) => {
                         <span style="font-weight: bold;">{{ cfg.mode.toUpperCase() }}</span>
                         <span style="margin: 0 4px; color: #ccc;">|</span>
                         <span>{{ cfg.display_metric }}</span>
-                        <el-icon v-if="parseConfigInfo(cfg).isLLM" style="margin-left: 4px; color: #9b59b6;"><Cpu /></el-icon>
                       </el-tag>
                     </template>
                     

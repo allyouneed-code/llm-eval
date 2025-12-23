@@ -13,6 +13,8 @@ class TaskCreate(SQLModel):
     # 变更点：改为 config_ids，明确指向 DatasetConfig 表的主键
     config_ids: List[int]  # 例如: [1, 5, 8] (对应 GSM8K-Gen, C-Eval-PPL 等)
 
+    scheme_id: Optional[int] = None
+
 # 2. 读取任务响应 (返回给前端的)
 class TaskRead(SQLModel):
     id: int

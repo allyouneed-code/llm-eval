@@ -12,7 +12,7 @@ from app.models.dataset import DatasetMeta, DatasetConfig, EvaluationMetric
 from app.models.task import EvaluationTask
 # === 修正部分 End ===
 
-from app.api.v1 import models, datasets, tasks
+from app.api.v1 import models, datasets, tasks, schemes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,3 +48,4 @@ def health_check():
 app.include_router(models.router, prefix="/api/v1/models", tags=["Models"])
 app.include_router(datasets.router, prefix="/api/v1/datasets", tags=["Datasets"])
 app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["Tasks"])
+app.include_router(schemes.router, prefix="/schemes", tags=["Schemes"])

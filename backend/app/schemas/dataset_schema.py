@@ -24,7 +24,6 @@ class DatasetConfigBase(SQLModel):
     prompt_version: Optional[str] = None
     
     # 🌟 UI展示用的指标名称 (如 "Accuracy", "BLEU")
-    # API 创建时会自动根据 metric_config 覆盖此字段，但在 Base 里保留默认值
     display_metric: str = "Accuracy"
     
     # 配置详情 (JSON 字符串)
@@ -32,13 +31,18 @@ class DatasetConfigBase(SQLModel):
     infer_cfg: str = "{}"
     metric_config: str = "{}" # 对应 evaluator_config
 
+    # 🆕 新增字段 (Base中定义，Create/Read自动继承)
+    post_process_cfg: str = "{}"  # 答案提取配置
+    few_shot_cfg: str = "{}"      # 少样本配置
+
 # 🌟 新增：用于创建配置的 Schema，包含校验逻辑
 class DatasetConfigCreate(DatasetConfigBase):
     meta_id: int
     file_path: str  # 必须指定文件路径
 
     # --- 校验 1: 确保所有 cfg 字段都是合法的 JSON ---
-    @field_validator('reader_cfg', 'infer_cfg', 'metric_config')
+    # 🆕 修改点：在装饰器中加入新字段名 'post_process_cfg', 'few_shot_cfg'
+    @field_validator('reader_cfg', 'infer_cfg', 'metric_config', 'post_process_cfg', 'few_shot_cfg')
     def must_be_valid_json(cls, v):
         try:
             parsed = json.loads(v)
@@ -56,25 +60,22 @@ class DatasetConfigCreate(DatasetConfigBase):
             if 'input_columns' not in cfg or 'output_column' not in cfg:
                 raise ValueError("Reader Config must contain 'input_columns' and 'output_column'")
         except:
-            pass # 上面的 JSON 校验会先拦截，这里忽略解析错误
+            pass 
         return v
 
     # --- 校验 3: PPL 模式下的特殊逻辑 ---
     @model_validator(mode='after')
     def validate_mode_logic(self):
+        # ... (保持原有逻辑不变) ...
         if self.mode == 'ppl':
             try:
                 infer_data = json.loads(self.infer_cfg)
-                # 兼容不同层级结构，这里假设标准结构是 prompt_template -> template
-                # 如果结构不同，需根据实际情况调整
                 prompt_cfg = infer_data.get('prompt_template', {})
                 template = prompt_cfg.get('template')
                 
-                # 如果取不到 template，可能是结构差异，暂不强行报错，防止误杀
                 if template and not isinstance(template, dict):
-                    raise ValueError("In PPL mode, prompt_template.template must be a dictionary mapping options to prompts (e.g., {'0': '...', '1': '...'})")
+                    raise ValueError("In PPL mode, prompt_template.template must be a dictionary mapping options to prompts")
             except Exception as e:
-                # 只在明确解析失败或类型错误时报错
                 if "dictionary" in str(e):
                     raise e
         return self
