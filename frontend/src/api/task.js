@@ -17,3 +17,8 @@ export function createTask(data) {
 export function getTask(id) {
   return request.get(URL + `/${id}`)
 }
+
+// 4. 删除任务
+export function deleteTask(id) {
+  return request.delete(URL + `/${id}`)
+}

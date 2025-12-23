@@ -27,3 +27,4 @@ class TaskRead(SQLModel):
     result_summary: Optional[str] = None
     created_at: datetime
     error_msg: Optional[str] = None
+    scheme_name: Optional[str] = None

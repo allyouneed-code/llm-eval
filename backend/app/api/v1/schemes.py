@@ -1,65 +1,77 @@
-# backend/app/api/v1/schemes.py
-
 import json
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
+# 🌟 核心修复 1: 引入 selectinload 用于预加载关联数据
+from sqlalchemy.orm import selectinload 
+
 from app.core.database import get_session
+from app.models.dataset import DatasetConfig
 from app.models.scheme import EvaluationScheme
 from app.schemas.scheme_schema import EvaluationSchemeCreate, EvaluationSchemeRead
-from app.models.dataset import DatasetConfig
 
 router = APIRouter()
 
 @router.post("/", response_model=EvaluationSchemeRead)
 def create_scheme(scheme_in: EvaluationSchemeCreate, session: Session = Depends(get_session)):
-    # ... 查重 ...
-
-    # 1. 创建方案对象
+    # 1. 查重
+    existing = session.exec(select(EvaluationScheme).where(EvaluationScheme.name == scheme_in.name)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Scheme name already exists")
+    
+    # 2. 创建方案基础对象
     db_scheme = EvaluationScheme(
         name=scheme_in.name,
         description=scheme_in.description
     )
+    # 先 add 但不 commit，为了让它生成 ID
     session.add(db_scheme)
-    session.commit()
-    session.refresh(db_scheme)
-
-    # 2. 建立关联 (写入 Link 表)
+    
+    # 3. 处理关联 (Many-to-Many)
+    current_config_ids = []
     if scheme_in.dataset_config_ids:
         # 查询出实际存在的 configs
         statement = select(DatasetConfig).where(DatasetConfig.id.in_(scheme_in.dataset_config_ids))
         configs = session.exec(statement).all()
         
-        # SQLModel 会自动处理 Link 表的写入
+        if not configs and scheme_in.dataset_config_ids:
+            # 如果传了ID但数据库查不到，说明ID无效
+            print(f"⚠️ Warning: Config IDs {scheme_in.dataset_config_ids} not found in DB.")
+        
+        # SQLModel 魔法：直接赋值对象列表，它会自动维护中间表
         db_scheme.configs = configs
-        session.add(db_scheme)
-        session.commit()
+        # 记录一下 ID 用于直接返回，防止 refresh 后懒加载失效
+        current_config_ids = [c.id for c in configs]
+        
+    session.commit()
+    session.refresh(db_scheme)
     
-    # 返回时，需手动提取 ID 列表给前端
+    # 4. 返回
     return EvaluationSchemeRead(
         id=db_scheme.id,
         name=db_scheme.name,
         description=db_scheme.description,
-        dataset_config_ids=[c.id for c in db_scheme.configs], # 动态获取存在的ID
+        # 手动填入刚才关联的 ID，确保返回给前端的数据是热乎的
+        dataset_config_ids=current_config_ids, 
         created_at=db_scheme.created_at
     )
 
 @router.get("/", response_model=List[EvaluationSchemeRead])
 def read_schemes(session: Session = Depends(get_session)):
-    schemes = session.exec(select(EvaluationScheme)).all()
+    # 🌟 核心修复 2: 使用 options(selectinload(...))
+    # 这告诉数据库：查 Scheme 的时候，顺便把关联的 configs 给我拉取缓存下来
+    statement = select(EvaluationScheme).options(selectinload(EvaluationScheme.configs))
+    schemes = session.exec(statement).all()
+    
     results = []
     for s in schemes:
-        # 手动转换 dataset_config_ids
-        try:
-            ids = json.loads(s.dataset_config_ids)
-        except:
-            ids = []
-            
+        # 此时 s.configs 已经被预加载了，不会为空 (除非真的没关联)
         results.append(EvaluationSchemeRead(
             id=s.id,
             name=s.name,
             description=s.description,
-            dataset_config_ids=ids,
+            # 提取关联对象的 ID
+            dataset_config_ids=[c.id for c in s.configs],
             created_at=s.created_at
         ))
     return results
@@ -69,6 +81,7 @@ def delete_scheme(scheme_id: int, session: Session = Depends(get_session)):
     scheme = session.get(EvaluationScheme, scheme_id)
     if not scheme:
         raise HTTPException(status_code=404, detail="Scheme not found")
+    
     session.delete(scheme)
     session.commit()
     return {"ok": True}

@@ -48,4 +48,4 @@ def health_check():
 app.include_router(models.router, prefix="/api/v1/models", tags=["Models"])
 app.include_router(datasets.router, prefix="/api/v1/datasets", tags=["Datasets"])
 app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["Tasks"])
-app.include_router(schemes.router, prefix="/schemes", tags=["Schemes"])
+app.include_router(schemes.router, prefix="/api/v1/schemes", tags=["Schemes"])

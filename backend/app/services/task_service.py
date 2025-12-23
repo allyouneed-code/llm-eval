@@ -1,6 +1,7 @@
 import json
 import time
 import random
+from datetime import datetime
 from fastapi import HTTPException
 from sqlmodel import Session, select
 from typing import List, Optional
@@ -93,6 +94,31 @@ class TaskService:
         
         self.session.commit()
         return db_task
+    
+    def delete_task(self, task_id: int) -> bool:
+        """
+        删除任务及其关联的所有数据 (Results, Links)
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return False
+            
+        # 1. 删除关联的评测结果 (EvaluationResult)
+        # 查出该任务所有的结果并删除
+        results = self.session.exec(select(EvaluationResult).where(EvaluationResult.task_id == task_id)).all()
+        for r in results:
+            self.session.delete(r)
+            
+        # 2. 删除关联的配置快照链接 (TaskDatasetLink)
+        links = self.session.exec(select(TaskDatasetLink).where(TaskDatasetLink.task_id == task_id)).all()
+        for l in links:
+            self.session.delete(l)
+
+        # 3. 最后删除任务本身
+        self.session.delete(task)
+        
+        self.session.commit()
+        return True
 
     def get_task(self, task_id: int) -> Optional[EvaluationTask]:
         return self.session.get(EvaluationTask, task_id)
@@ -102,7 +128,7 @@ class TaskService:
 
     def run_evaluation_logic(self, task_id: int):
         """
-        执行评测的具体逻辑 (供 Worker 调用)
+        执行评测的具体逻辑 (加速版 - 供 Worker 调用)
         """
         # 0. 获取任务
         task = self.get_task(task_id)
@@ -111,8 +137,12 @@ class TaskService:
             return "Task Not Found"
             
         # 解析配置 IDs (兼容旧字段 datasets_list)
-        # 未来优化建议：改用 TaskDatasetLink 读取，以使用 snapshot 确保完全复现
-        config_ids = json.loads(task.datasets_list)
+        # 优先使用 scheme_id 获取 (如果有)，这里简化为直接读取 datasets_list
+        try:
+            config_ids = json.loads(task.datasets_list)
+        except:
+            config_ids = []
+
         configs = self.session.exec(
             select(DatasetConfig).where(DatasetConfig.id.in_(config_ids))
         ).all()
@@ -135,8 +165,8 @@ class TaskService:
         self.session.add(task)
         self.session.commit()
         
-        # 2. 模拟加载模型
-        time.sleep(1)
+        # 2. 模拟加载模型 (加速：0.5秒)
+        time.sleep(0.5) 
         task.progress = 10
         self.session.add(task)
         self.session.commit()
@@ -146,8 +176,8 @@ class TaskService:
         table_data = [] 
         
         for i, item in enumerate(eval_queue):
-            # 模拟推理耗时
-            time.sleep(1.5) 
+            # 🚀 加速关键点：每次评测只等待 0.2 秒
+            time.sleep(0.2) 
             
             # 模拟分数生成
             score = round(random.uniform(50, 95), 1)
@@ -159,7 +189,7 @@ class TaskService:
                 dataset_name=item["name"],
                 metric_name=item["metric"],
                 score=score,
-                details={"full_log": "mock_log_path.txt"} 
+                details={"full_log": "mock_log_fast.txt"} 
             )
             self.session.add(db_result)
 
@@ -171,29 +201,57 @@ class TaskService:
                 "score": score
             })
             
-            # 更新进度 (每处理一个数据集更新一次，避免频繁 Commit)
-            current_progress = 10 + int(((i + 1) / total_steps) * 80)
+            # 更新进度 
+            # 算法：基础10% + (当前步数/总步数)*85%
+            current_progress = 10 + int(((i + 1) / total_steps) * 85)
+            # 封顶 99，最后再设 100
+            if current_progress > 99: current_progress = 99
+            
             task.progress = current_progress
             self.session.add(task)
             self.session.commit()
 
         # 4. 构造最终摘要并完成
-        # 这里的雷达图数据目前是 Mock 的，实际应根据 table_data 按 capability 聚合计算
+        capability_stats = {}
+        
+        # 1. 遍历明细结果，按能力维度分组收集分数
+        for item in table_data:
+            cat = item['capability']
+            if cat not in capability_stats:
+                capability_stats[cat] = []
+            capability_stats[cat].append(item['score'])
+        
+        # 2. 计算平均分并生成 Radar 数据结构
+        radar_data = []
+        for cat, scores in capability_stats.items():
+            avg_score = sum(scores) / len(scores)
+            radar_data.append({
+                "name": cat,
+                "max": 100,
+                "score": round(avg_score, 1) # 保留一位小数
+            })
+
+        # 3. 构造最终摘要
         final_summary = {
-            "radar": [
-                {"name": "Knowledge", "max": 100, "score": 85.5},
-                {"name": "Reasoning", "max": 100, "score": 62.1},
-            ],
+            "radar": radar_data, # 现在是动态计算的了
             "table": table_data 
         }
         
         task.result_summary = json.dumps(final_summary)
         task.status = "success"
         task.progress = 100
-        task.finished_at = time.strftime('%Y-%m-%d %H:%M:%S') 
+        task.finished_at = datetime.now() 
         
         self.session.add(task)
         self.session.commit()
         
-        print(f"✅ [Service] 任务 {task_id} 逻辑执行完毕")
+        task.result_summary = json.dumps(final_summary)
+        task.status = "success"
+        task.progress = 100
+        task.finished_at = datetime.now()
+        
+        self.session.add(task)
+        self.session.commit()
+        
+        print(f"✅ [Service] 任务 {task_id} (加速版) 执行完毕")
         return f"Task {task_id} Success"

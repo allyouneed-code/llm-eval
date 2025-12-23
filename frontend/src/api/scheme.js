@@ -1,24 +1,15 @@
 import request from '@/utils/request'
 
+const URL = '/v1/schemes'
 
 export function getSchemes() {
-  return request({
-    url: '/api/v1/schemes/',
-    method: 'get'
-  })
+  return request.get(URL + '/')
 }
 
 export function createScheme(data) {
-  return request({
-    url: '/api/v1/schemes/',
-    method: 'post',
-    data
-  })
+  return request.post(URL + '/', data)
 }
 
 export function deleteScheme(id) {
-  return request({
-    url: `/api/v1/schemes/${id}`,
-    method: 'delete'
-  })
+  return request.delete(URL + `/${id}`)
 }

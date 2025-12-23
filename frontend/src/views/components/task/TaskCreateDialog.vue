@@ -1,10 +1,11 @@
 <script setup>
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { InfoFilled, Cpu, CollectionTag, Odometer, DataAnalysis, List } from '@element-plus/icons-vue' 
 import { getModels } from '@/api/model'
 import { getDatasets } from '@/api/dataset'
 import { createTask } from '@/api/task'
-import { getSchemes } from '@/api/scheme' // 🆕
+import { getSchemes } from '@/api/scheme'
 
 const props = defineProps({
   visible: { type: Boolean, default: false }
@@ -12,95 +13,94 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'success'])
 
-const activeTab = ref('scheme') // 默认使用方案创建 'scheme' | 'custom'
 const submitting = ref(false)
 
 // 表单数据
 const form = reactive({
   model_id: '',
-  scheme_id: '',   // Tab 1 用
-  config_ids: []   // Tab 2 用
+  scheme_id: ''
 })
 
 // 数据源
 const models = ref([])
 const schemes = ref([])
-const datasets = ref([]) // 用于 Tab 2 的树形选择
+const allDatasets = ref([]) 
 
-// 1. 初始化加载
+// 初始化加载
 const initData = async () => {
-  // 加载模型
-  const modelRes = await getModels()
-  models.value = modelRes
-  
-  // 加载方案
-  const schemeRes = await getSchemes()
-  schemes.value = schemeRes
-  
-  // 加载数据集 (用于 Tab 2 和 Tab 1 的预览)
-  const datasetRes = await getDatasets({ page: 1, page_size: 100 })
-  datasets.value = datasetRes.items
+  try {
+    const [modelRes, schemeRes, datasetRes] = await Promise.all([
+      getModels(),
+      getSchemes(),
+      getDatasets({ page: 1, page_size: 500 }) 
+    ])
+    
+    models.value = modelRes
+    schemes.value = schemeRes
+    allDatasets.value = datasetRes.items
+  } catch (e) {
+    console.error("加载基础数据失败", e)
+  }
 }
 
 watch(() => props.visible, (val) => {
   if (val) {
     form.model_id = ''
     form.scheme_id = ''
-    form.config_ids = []
-    activeTab.value = 'scheme'
     initData()
   }
 })
 
-// Tab 1: 选定方案后，计算预览信息
-const currentScheme = computed(() => {
-  return schemes.value.find(s => s.id === form.scheme_id)
-})
-const schemePreviewCount = computed(() => {
-  return currentScheme.value ? currentScheme.value.dataset_config_ids.length : 0
-})
+// 计算选中方案的详细信息
+const selectedSchemeRichInfo = computed(() => {
+  if (!form.scheme_id) return null
+  
+  const scheme = schemes.value.find(s => s.id === form.scheme_id)
+  if (!scheme) return null
 
-// Tab 2: 树形数据转换
-const treeData = computed(() => {
-  return datasets.value.map(meta => ({
-    label: `[${meta.category}] ${meta.name}`,
-    value: `meta-${meta.id}`,
-    children: meta.configs.map(cfg => ({
-      label: `${cfg.config_name} (${cfg.display_metric})`,
-      value: cfg.id // 实际选中的是这个 ID
-    }))
-  }))
+  const configIds = scheme.dataset_config_ids || []
+  const details = []
+  
+  allDatasets.value.forEach(meta => {
+    if (meta.configs) {
+      meta.configs.forEach(cfg => {
+        if (configIds.includes(cfg.id)) {
+          details.push({
+            id: cfg.id,
+            datasetName: meta.name,
+            category: meta.category,
+            configName: cfg.config_name,
+            mode: cfg.mode,
+            metric: cfg.display_metric
+          })
+        }
+      })
+    }
+  })
+
+  const categories = Array.from(new Set(details.map(d => d.category)))
+
+  return { ...scheme, details, categories }
 })
 
 const handleSubmit = async () => {
   if (!form.model_id) return ElMessage.warning('请选择评测模型')
+  if (!form.scheme_id) return ElMessage.warning('请选择一个评测方案')
 
   const payload = {
     model_id: form.model_id,
-    scheme_id: null,
-    config_ids: []
-  }
-
-  if (activeTab.value === 'scheme') {
-    if (!form.scheme_id) return ElMessage.warning('请选择一个评测方案')
-    payload.scheme_id = form.scheme_id
-    // config_ids 留空，后端会自动填充
-  } else {
-    if (form.config_ids.length === 0) return ElMessage.warning('请至少选择一个数据集')
-    // 过滤掉父节点 (meta-xx)，只保留数字 ID
-    const realIds = form.config_ids.filter(id => typeof id === 'number')
-    if (realIds.length === 0) return ElMessage.warning('请选择具体的配置项')
-    payload.config_ids = realIds
+    scheme_id: form.scheme_id,
+    config_ids: [] 
   }
 
   submitting.value = true
   try {
     await createTask(payload)
-    ElMessage.success('评测任务创建成功')
+    ElMessage.success('评测任务创建成功，正在后台运行...')
     emit('update:visible', false)
     emit('success')
   } catch (e) {
-    // console.error(e)
+    // error handled by request interceptor
   } finally {
     submitting.value = false
   }
@@ -112,107 +112,199 @@ const handleSubmit = async () => {
     title="新建评测任务" 
     :model-value="visible"
     @update:model-value="val => emit('update:visible', val)"
-    width="600px"
+    width="750px"
+    top="8vh"
+    destroy-on-close
+    class="custom-dialog"
   >
-    <el-form label-position="top">
-      <el-form-item label="待测模型 (Model)" required>
-        <el-select v-model="form.model_id" placeholder="请选择模型" style="width: 100%">
-          <el-option 
-            v-for="m in models" 
-            :key="m.id" 
-            :label="m.name" 
-            :value="m.id" 
-          />
-        </el-select>
-      </el-form-item>
+    <div class="dialog-body">
+      
+      <div class="control-panel">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <div class="input-label"><el-icon><Cpu /></el-icon> 待测模型</div>
+            <el-select 
+              v-model="form.model_id" 
+              placeholder="选择模型..." 
+              style="width: 100%" 
+              size="large"
+              filterable
+            >
+              <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
+            </el-select>
+          </el-col>
 
-      <el-tabs v-model="activeTab" type="border-card" class="mb-4">
+          <el-col :span="12">
+            <div class="input-label"><el-icon><CollectionTag /></el-icon> 评测方案</div>
+            <el-select 
+              v-model="form.scheme_id" 
+              placeholder="选择评测方案..." 
+              style="width: 100%" 
+              size="large"
+              filterable
+            >
+              <el-option v-for="s in schemes" :key="s.id" :label="s.name" :value="s.id" />
+            </el-select>
+          </el-col>
+        </el-row>
+      </div>
+
+      <transition name="el-zoom-in-top">
         
-        <el-tab-pane label="引用方案 (推荐)" name="scheme">
-          <div class="p-2">
-            <el-form-item label="选择方案" style="margin-bottom: 10px;">
-              <el-select v-model="form.scheme_id" placeholder="选择预设的 Benchmark..." style="width: 100%">
-                <el-option 
-                  v-for="s in schemes" 
-                  :key="s.id" 
-                  :label="s.name" 
-                  :value="s.id" 
-                />
-              </el-select>
-            </el-form-item>
-            
-            <div v-if="currentScheme" class="bg-gray-50 p-3 rounded text-sm text-gray-600">
-              <div class="font-bold mb-1">方案详情：</div>
-              <div class="mb-1">{{ currentScheme.description || '无描述' }}</div>
-              <div>
-                包含数据集配置：
-                <el-tag type="success" size="small">{{ schemePreviewCount }} 个</el-tag>
-              </div>
+        <div v-if="selectedSchemeRichInfo" class="scheme-detail-card">
+          
+          <div class="card-header">
+            <div class="scheme-title">
+              <el-icon class="mr-1 text-blue-500"><DataAnalysis /></el-icon> 
+              {{ selectedSchemeRichInfo.name }}
             </div>
-            <div v-else class="text-gray-400 text-xs mt-2">
-              <el-icon><InfoFilled /></el-icon> 选择方案后将自动加载其中定义的所有数据集配置。
+            <div class="scheme-desc">
+              {{ selectedSchemeRichInfo.description || '暂无描述信息' }}
             </div>
           </div>
-        </el-tab-pane>
 
-        <el-tab-pane label="自由组合 (Custom)" name="custom">
-          <div class="p-2">
-            <el-form-item label="勾选数据集配置" style="margin-bottom: 0;">
-              <el-tree-select
-                v-model="form.config_ids"
-                :data="treeData"
-                multiple
-                show-checkbox
-                collapse-tags
-                placeholder="请展开分类勾选具体配置..."
-                style="width: 100%"
-              />
-            </el-form-item>
+          <div class="summary-bar">
+            <div class="sum-item">
+              <span class="lbl">能力维度</span>
+              <span class="val">{{ selectedSchemeRichInfo.categories.length }}</span>
+            </div>
+            <div class="divider"></div>
+            <div class="sum-item">
+              <span class="lbl">数据集配置</span>
+              <span class="val">{{ selectedSchemeRichInfo.details.length }}</span>
+            </div>
+            <div class="divider"></div>
+            <div class="tags-container">
+              <el-tag 
+                v-for="cat in selectedSchemeRichInfo.categories.slice(0, 4)" 
+                :key="cat" 
+                type="info" effect="plain" size="small"
+                class="cat-tag"
+              >
+                {{ cat }}
+              </el-tag>
+              <span v-if="selectedSchemeRichInfo.categories.length > 4" class="more-text">...</span>
+            </div>
           </div>
-        </el-tab-pane>
-      </el-tabs>
 
-    </el-form>
+          <div class="table-wrapper">
+            <el-table 
+              :data="selectedSchemeRichInfo.details" 
+              size="small" 
+              height="240" 
+              style="width: 100%"
+              :header-cell-style="{ background: '#f5f7fa', color: '#606266' }"
+            >
+              <el-table-column prop="datasetName" label="数据集名称" min-width="140" show-overflow-tooltip>
+                <template #default="scope">
+                  <span class="font-medium text-gray-700">{{ scope.row.datasetName }}</span>
+                </template>
+              </el-table-column>
+              
+              <el-table-column prop="category" label="维度" width="110" show-overflow-tooltip />
+              
+              <el-table-column prop="configName" label="配置子项" min-width="130" show-overflow-tooltip />
+              
+              <el-table-column prop="mode" label="模式" width="80" align="center">
+                <template #default="scope">
+                   <el-tag v-if="scope.row.mode==='gen'" type="warning" size="small" effect="plain" round>GEN</el-tag>
+                   <el-tag v-else type="info" size="small" effect="plain" round>PPL</el-tag>
+                </template>
+              </el-table-column>
+              
+              <el-table-column prop="metric" label="指标" width="100" align="right">
+                 <template #default="scope">
+                   <div class="metric-cell">
+                     <el-icon><Odometer /></el-icon>
+                     <span>{{ scope.row.metric }}</span>
+                   </div>
+                 </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+        
+        <div v-else class="empty-placeholder">
+           <div class="placeholder-content">
+             <el-icon class="icon-lg"><List /></el-icon>
+             <p class="main-text">请先选择一个评测方案</p>
+             <p class="sub-text">选择后将在此处展示方案包含的详细数据集和配置信息</p>
+           </div>
+        </div>
+
+      </transition>
+
+    </div>
 
     <template #footer>
-      <el-button @click="emit('update:visible', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="handleSubmit">
-        立即评测
-      </el-button>
+      <div class="dialog-footer">
+        <el-button @click="emit('update:visible', false)" size="large">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSubmit" size="large" icon="VideoPlay">
+          立即评测
+        </el-button>
+      </div>
     </template>
   </el-dialog>
 </template>
 
 <style scoped>
-/* 样式与原 TaskView 保持一致，但范围缩小到组件内 */
-.search-bar { margin-bottom: 10px; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
-.filter-box { display: flex; align-items: center; background: #f4f4f5; padding: 4px 10px; border-radius: 16px; margin-right: 10px; cursor: pointer; transition: all 0.3s; border: 1px solid transparent; }
-.filter-box:hover { background: #ebeef5; }
-.filter-box.active { background: #f2ebfb; border-color: #d6bbf5; }
-.filter-label { font-size: 12px; color: #606266; margin-right: 8px; display: flex; align-items: center; }
-.filter-box.active .filter-label { color: #8e44ad; font-weight: bold; }
-.mini-badge { font-size: 10px; padding: 1px 4px; border-radius: 4px; font-weight: bold; height: 16px; line-height: 14px; flex-shrink: 0; margin-left: 5px; }
-.mini-badge.official { background-color: #ecf5ff; color: #409eff; border: 1px solid #c6e2ff; }
-.mini-badge.private { background-color: #f3e5f5; color: #7b1fa2; border: 1px solid #e1bee7; }
-.dataset-card.is-official { border-left: 3px solid #409EFF; }
-.dataset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 12px; background: #fafafa; }
-.dataset-card { background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s; }
-.dataset-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.05); transform: translateY(-1px); }
-.dataset-card.is-selected { border-color: #409EFF; background-color: #ecf5ff; }
-.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-.card-title { font-weight: 600; font-size: 14px; color: #303133; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
-.card-body { padding-top: 5px; border-top: 1px dashed #eee; display: flex; align-items: center; justify-content: space-between; }
-.mode-selector { display: flex; align-items: center; gap: 5px; width: 100%; }
-.mode-selector .label { font-size: 12px; color: #909399; }
-.mode-text { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 4px; }
-.mode-text.error { color: #F56C6C; }
-.section-card { background: #fff; padding: 15px; border: 1px solid #ebeef5; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
-.section-title { font-size: 15px; font-weight: bold; color: #303133; margin-bottom: 12px; border-left: 4px solid #409EFF; padding-left: 10px; display: flex; justify-content: space-between; }
-.dataset-scroll-area { max-height: 50vh; overflow-y: auto; padding-right: 5px; }
-.group-title { width: 100%; display: flex; align-items: center; }
-.count-badge { margin-left: auto; font-size: 12px; color: #999; margin-right: 10px; }
-.model-option { display: flex; flex-direction: column; }
-.model-name { font-weight: bold; color: #303133; }
-.model-path-opt { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 4px; }
-.sub-text { font-weight: normal; font-size: 12px; color: #909399; }
+.dialog-body { padding: 0 10px; }
+
+/* 1. 顶部控制区 */
+.control-panel { margin-bottom: 20px; }
+.input-label { 
+  font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 8px; 
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* 2. 详情卡片容器 */
+.scheme-detail-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.03);
+}
+
+/* 卡片头部 */
+.card-header {
+  background: linear-gradient(to right, #f8fafc, #fff);
+  padding: 15px 20px;
+  border-bottom: 1px solid #ebeef5;
+}
+.scheme-title { font-size: 16px; font-weight: 700; color: #303133; display: flex; align-items: center; }
+.scheme-desc { font-size: 13px; color: #909399; margin-top: 5px; padding-left: 20px; }
+
+/* 统计摘要条 */
+.summary-bar {
+  display: flex; align-items: center; padding: 12px 20px; background-color: #fff;
+  border-bottom: 1px solid #ebeef5;
+}
+.sum-item { display: flex; flex-direction: column; align-items: center; min-width: 60px; }
+.sum-item .lbl { font-size: 10px; color: #909399; text-transform: uppercase; }
+.sum-item .val { font-size: 16px; font-weight: bold; color: #409EFF; }
+.divider { width: 1px; height: 24px; background: #ebeef5; margin: 0 15px; }
+
+.tags-container { flex-grow: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cat-tag { border-radius: 4px; }
+.more-text { font-size: 12px; color: #C0C4CC; margin-left: 4px; }
+
+/* 表格区域 */
+.table-wrapper { padding: 0; }
+.metric-cell { display: flex; align-items: center; justify-content: flex-end; gap: 4px; color: #67c23a; font-family: monospace; font-weight: 600; }
+
+/* 3. 空状态占位 */
+.empty-placeholder {
+  height: 300px;
+  border: 1px dashed #dcdfe6;
+  border-radius: 8px;
+  background-color: #f9fafc;
+  display: flex; align-items: center; justify-content: center;
+}
+.placeholder-content { text-align: center; color: #909399; }
+.icon-lg { font-size: 48px; margin-bottom: 15px; color: #dcdfe6; }
+.main-text { font-size: 14px; font-weight: 500; margin-bottom: 5px; color: #606266; }
+.sub-text { font-size: 12px; color: #C0C4CC; }
+
+.font-medium { font-weight: 500; }
 </style>
