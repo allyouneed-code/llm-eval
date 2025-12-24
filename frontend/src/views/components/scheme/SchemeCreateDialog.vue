@@ -82,7 +82,7 @@ const selectedConfigsDetails = computed(() => {
 // 加载数据
 const fetchConfigs = async () => {
   try {
-    const res = await getDatasets({ page: 1, page_size: 100 })
+    const res = await getDatasets({ page: 1, page_size: 300 })
     allDatasetsMeta.value = res.items || []
   } catch (e) {
     console.error(e)
