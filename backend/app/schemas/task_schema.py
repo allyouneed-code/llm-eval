@@ -28,3 +28,10 @@ class TaskRead(SQLModel):
     created_at: datetime
     error_msg: Optional[str] = None
     scheme_name: Optional[str] = None
+
+# 3. 分页响应包装类
+class TaskPagination(SQLModel):
+    total: int          # 总记录数
+    page: int           # 当前页码
+    page_size: int      # 每页大小
+    items: List[TaskRead] # 具体的任务列表

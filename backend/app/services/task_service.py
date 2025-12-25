@@ -31,9 +31,6 @@ class TaskService:
         if not model:
             raise HTTPException(status_code=404, detail="所选模型不存在 (Model not found)")
         
-        # ==========================================
-        # 🆕 核心逻辑变更：处理方案引用
-        # ==========================================
         target_config_ids = task_in.config_ids or []
 
         if task_in.scheme_id:
@@ -43,7 +40,6 @@ class TaskService:
                 raise HTTPException(status_code=404, detail="所选评测方案不存在")
             
             # 利用 SQLModel 的 relationship 获取当前关联的所有有效配置
-            # 这规避了"数据集被删但ID仍遗留在JSON字符串中"的风险
             scheme_configs = scheme.configs
             
             if not scheme_configs:
@@ -52,7 +48,7 @@ class TaskService:
             # 覆盖 target_config_ids
             target_config_ids = [c.id for c in scheme_configs]
         
-        # 2. 验证配置 ID 列表 (无论是手动传的还是从方案查出来的)
+        # 2. 验证配置 ID 列表
         if not target_config_ids:
             raise HTTPException(status_code=400, detail="未选择任何评测数据集")
 
@@ -61,7 +57,6 @@ class TaskService:
         configs = self.session.exec(statement).all()
         
         # 再次校验数量（防止手动模式下传了不存在的ID）
-        # 注意：如果是从 scheme.configs 拿的，这里通常是一致的；如果是前端手动传 ID，这里能拦截错误
         if len(configs) != len(set(target_config_ids)):
              raise HTTPException(status_code=400, detail="部分评测配置不存在或ID重复")
         
@@ -82,7 +77,6 @@ class TaskService:
         self.session.refresh(db_task)
         
         # 4. 写入 TaskDatasetLink 中间表 (带配置快照)
-        # 这一步非常重要，它固化了任务执行时的配置参数
         for config in configs:
             snapshot_json = json.dumps(config.model_dump(mode='json'), default=str)
             link = TaskDatasetLink(
@@ -112,7 +106,7 @@ class TaskService:
         # 2. 删除关联的配置快照链接 (TaskDatasetLink)
         links = self.session.exec(select(TaskDatasetLink).where(TaskDatasetLink.task_id == task_id)).all()
         for l in links:
-            self.session.delete(l)
+            self.session.delete(l)  
 
         # 3. 最后删除任务本身
         self.session.delete(task)

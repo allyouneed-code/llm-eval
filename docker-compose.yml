@@ -1,11 +1,10 @@
-version: '3.8'
 
 services:
   # 1. 前端服务 (Nginx + Vue)
   frontend:
     build: ./frontend
     ports:
-      - "80:80"  # 浏览器访问 http://localhost
+      - "8080:80"  # 浏览器访问 http://localhost
     depends_on:
       - backend
     restart: always
@@ -40,6 +39,8 @@ services:
   # 4. Redis
   redis:
     image: redis:7-alpine
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
 

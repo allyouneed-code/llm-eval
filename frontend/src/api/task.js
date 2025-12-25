@@ -3,8 +3,8 @@ import request from '@/utils/request'
 const URL = '/v1/tasks'
 
 // 1. 获取任务列表
-export function getTasks() {
-  return request.get(URL + '/')
+export function getTasks(params) {
+  return request.get(URL + '/', { params })
 }
 
 // 2. 创建评测任务

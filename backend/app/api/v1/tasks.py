@@ -1,7 +1,7 @@
 import json
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_session
@@ -9,7 +9,7 @@ from app.models.task import EvaluationTask
 from app.models.links import TaskDatasetLink
 from app.models.scheme import EvaluationScheme 
 from app.models.dataset import DatasetConfig # 需要引入 DatasetConfig
-from app.schemas.task_schema import TaskCreate, TaskRead
+from app.schemas.task_schema import TaskCreate, TaskRead, TaskPagination
 from app.worker.celery_app import run_evaluation_task
 from app.services.task_service import TaskService
 
@@ -79,20 +79,28 @@ def create_task(
     
     return db_task
 
-@router.get("/", response_model=List[TaskRead])
+@router.get("/", response_model=TaskPagination) 
 def read_tasks(
-    offset: int = 0,
-    limit: int = 100,
+    page: int = 1,        
+    page_size: int = 10,  
     session: Session = Depends(get_session)
 ):
     """
-    获取任务列表 (包含方案名称)
+    获取任务列表 (分页模式)
     """
+    # 计算 offset
+    offset = (page - 1) * page_size
+
+    # A. 查询总条数 (不带 limit/offset)
+    count_statement = select(func.count()).select_from(EvaluationTask)
+    total = session.exec(count_statement).one()
+
+    # B. 查询当前页数据 
     statement = (
         select(EvaluationTask, EvaluationScheme.name)
         .outerjoin(EvaluationScheme, EvaluationTask.scheme_id == EvaluationScheme.id)
-        .offset(offset)
-        .limit(limit)
+        .offset(offset)     # 使用计算出的 offset
+        .limit(page_size)   # 使用 page_size
         .order_by(EvaluationTask.id.desc())
     )
     
@@ -104,7 +112,13 @@ def read_tasks(
         task_dict["scheme_name"] = s_name 
         tasks_with_details.append(task_dict)
         
-    return tasks_with_details
+    # C. 返回分页结构
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": tasks_with_details
+    }
 
 @router.get("/{task_id}", response_model=TaskRead)
 def read_task(task_id: int, session: Session = Depends(get_session)):

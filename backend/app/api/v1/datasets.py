@@ -119,7 +119,6 @@ def create_dataset(
     category: str = Form(...),
     description: Optional[str] = Form(None),
     
-    # 🔄 变更：接收 JSON 列表字符串，不再接收散装参数
     # 格式示例：[{"config_name": "v1", "mode": "gen", "reader_cfg": "...", "post_process_cfg": "..."}]
     configs_json: str = Form(...), 
     

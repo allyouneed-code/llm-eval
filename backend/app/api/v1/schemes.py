@@ -2,7 +2,6 @@ import json
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-# 🌟 核心修复 1: 引入 selectinload 用于预加载关联数据
 from sqlalchemy.orm import selectinload 
 
 from app.core.database import get_session
@@ -51,21 +50,18 @@ def create_scheme(scheme_in: EvaluationSchemeCreate, session: Session = Depends(
         id=db_scheme.id,
         name=db_scheme.name,
         description=db_scheme.description,
-        # 手动填入刚才关联的 ID，确保返回给前端的数据是热乎的
+        # 手动填入刚才关联的 ID
         dataset_config_ids=current_config_ids, 
         created_at=db_scheme.created_at
     )
 
 @router.get("/", response_model=List[EvaluationSchemeRead])
 def read_schemes(session: Session = Depends(get_session)):
-    # 🌟 核心修复 2: 使用 options(selectinload(...))
-    # 这告诉数据库：查 Scheme 的时候，顺便把关联的 configs 给我拉取缓存下来
     statement = select(EvaluationScheme).options(selectinload(EvaluationScheme.configs))
     schemes = session.exec(statement).all()
     
     results = []
     for s in schemes:
-        # 此时 s.configs 已经被预加载了，不会为空 (除非真的没关联)
         results.append(EvaluationSchemeRead(
             id=s.id,
             name=s.name,

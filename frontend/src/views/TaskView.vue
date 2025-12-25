@@ -12,7 +12,11 @@ import TaskCreateDialog from './components/task/TaskCreateDialog.vue'
 import TaskDetailDrawer from './components/task/TaskDetailDrawer.vue'
 
 // 使用 Composable (复用之前的逻辑)
-const { taskList, modelList, datasetList, fetchTasks, fetchBasicData } = useTaskData()
+// 修改：解构出分页相关的属性和方法
+const { 
+  taskList, modelList, datasetList, fetchTasks, fetchBasicData,
+  pagination, handlePageChange, handleSizeChange 
+} = useTaskData()
 
 // UI 状态
 const createDialogVisible = ref(false)
@@ -223,6 +227,19 @@ const handleRefresh = () => {
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="pagination.currentPage"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50]"
+          :total="pagination.total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+          background
+        />
+      </div>
     </div>
 
     <TaskCreateDialog 
@@ -284,6 +301,8 @@ const handleRefresh = () => {
   padding: 8px;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ID Badge */
@@ -434,5 +453,11 @@ const handleRefresh = () => {
 /* 自定义表格行 hover 效果 */
 :deep(.el-table__row:hover) > td {
   background-color: #f8fafc !important;
+}
+
+.pagination-container {
+  padding: 16px 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
