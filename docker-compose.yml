@@ -22,6 +22,9 @@ services:
       - redis
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     restart: always
+    volumes:
+      - ./backend/workspace:/app/workspace
+      - ./backend/data:/app/data
 
   # 3. Celery Worker (异步任务)
   celery_worker:
@@ -35,6 +38,10 @@ services:
     # 启动命令改为 celery worker
     command: celery -A app.worker.celery_app worker --loglevel=info
     restart: always
+    volumes:
+      - ./backend/workspace:/app/workspace
+      - ./backend/data:/app/data
+      - ./backend/debug_test:/app/debug_test
 
   # 4. Redis
   redis:

@@ -15,7 +15,7 @@ class OpenCompassRunner:
     def __init__(self, workspace: str):
         """
         初始化运行器
-        :param workspace: 任务的工作目录，用于存放 config.py, 日志和输出结果
+        :param workspace: 任务的独立工作目录，用于存放 config.py, 日志和输出结果
         """
         self.workspace = workspace
         # 确保工作目录存在
@@ -31,62 +31,159 @@ class OpenCompassRunner:
             logger.info(f"🚀 Detected {gpu_count} GPUs. Using GPU mode.")
             return {
                 "device_map": "'auto'",
-                "num_gpus": 1,          # 单个任务默认占用 1 张卡
+                "num_gpus": 1,          # 默认单任务单卡，可根据调度优化
                 "max_out_len": 100,
-                "batch_size": 8,        # 显存足够时调大，加快速度
+                "batch_size": 8,        
             }
         else:
             logger.warning("⚠️ No GPU detected. Falling back to CPU mode (Very Slow).")
             return {
                 "device_map": "'cpu'",
                 "num_gpus": 0,
-                "max_out_len": 20,      # CPU 模式下缩短输出长度
+                "max_out_len": 20,      
                 "batch_size": 1,
             }
 
     def generate_config(self, task_id: int, model: LLMModel, datasets: List[DatasetConfig]) -> str:
         """
-        【配置生成】
-        基于“引用”模式生成配置文件。
-        不重新定义数据集，而是直接引用数据库中存储的 dataset.path
+        【配置生成 - Import修复版】
+        修复 NameError: name 'OpenAI' is not defined 问题。
+        确保在定义 models 列表之前，先完成类的 Import。
         """
+        import json
+        
+        # 1. 准备路径
+        workspace_str = str(os.path.abspath(self.workspace)).replace("\\", "/")
+        
+        # =========================================================
+        # 第一部分：生成 dataset_loader.py
+        # =========================================================
+        loader_code = [
+            "import json",
+            "import os",
+            "from opencompass.datasets import BaseDataset",
+            "from datasets import Dataset",
+            "",
+            "class SimpleJsonlDataset(BaseDataset):",
+            "    def load(self, path):",
+            "        data_list = []",
+            "        if not os.path.exists(path):",
+            "            print(f'Warning: Dataset file not found: {path}')",
+            "            return {'test': Dataset.from_list([]), 'train': Dataset.from_list([])}",
+            "        with open(path, 'r', encoding='utf-8') as f:",
+            "            for line in f:",
+            "                line = line.strip()",
+            "                if line:",
+            "                    try:",
+            "                        data_list.append(json.loads(line))",
+            "                    except:",
+            "                        pass",
+            "        dataset = Dataset.from_list(data_list)",
+            "        return {",
+            "            'test': dataset,",
+            "            'train': dataset,",
+            "            'validation': dataset",
+            "        }"
+        ]
+        
+        loader_path = os.path.join(self.workspace, "dataset_loader.py")
+        with open(loader_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(loader_code))
+            
+        # =========================================================
+        # 第二部分：准备配置变量
+        # =========================================================
         run_cfg = self._detect_device_config()
         
-        # 1. 准备数据集路径列表
-        # 这里的 ds.path 应该是 OpenCompass 容器内的有效路径
-        # 例如: 'configs/datasets/gsm8k/gsm8k_gen.py' (官方)
-        # 或者: 'workspace/custom_configs/my_data_gen.py' (私有)
-        dataset_paths_list = [f"'{ds.path}'" for ds in datasets]
-        base_datasets_str = ",\n    ".join(dataset_paths_list)
+        # --- 2.1 构建数据集列表 ---
+        ds_lines = []
+        for ds in datasets:
+            fpath = str(ds.file_path).replace("\\", "/") if ds.file_path else ""
+            if fpath and not os.path.isabs(fpath):
+                 fpath = os.path.abspath(fpath).replace("\\", "/")
 
-        # 2. 拼接完整的 Python 配置字符串
-        # 核心逻辑：
-        # (1) 使用 _base_ 加载所有数据集文件
-        # (2) 遍历 locals() 找到所有加载进来的数据集变量 (通常以 _datasets 结尾)
-        # (3) 将它们合并到最终的 datasets 列表中
-        config_content = f"""
-from opencompass.models import HuggingFaceCausalLM
+            try: reader_cfg = json.loads(ds.reader_cfg) if ds.reader_cfg else {}
+            except: reader_cfg = {}
+            try: infer_cfg = json.loads(ds.infer_cfg) if ds.infer_cfg else {}
+            except: infer_cfg = {}
+            try: eval_cfg = json.loads(ds.metric_config) if getattr(ds, 'metric_config', None) else {}
+            except: eval_cfg = {}
 
-# 1. 引用外部数据集配置
-_base_ = [
-    {base_datasets_str}
+            # 兜底逻辑
+            if not reader_cfg:
+                reader_cfg = {'input_columns': ['question', 'textA', 'textB', 'textC', 'textD'], 'output_column': 'answerKey'}
+            if not infer_cfg:
+                 infer_cfg = {
+                    'prompt_template': {
+                        'type': 'PromptTemplate',
+                        'template': {
+                            'round': [{'role': 'HUMAN', 'prompt': 'Question: {question}\nA. {textA}\nB. {textB}\nC. {textC}\nD. {textD}\nAnswer:'}]
+                        }
+                    },
+                    'retriever': {'type': 'ZeroRetriever'},
+                    'inferencer': {'type': 'GenInferencer'}
+                 }
+            if not eval_cfg:
+                eval_cfg = {
+                    'evaluator': {'type': 'AccEvaluator'},
+                    'pred_role': 'BOT',
+                    'pred_postprocessor': {'type': 'first_option_postprocess', 'options': 'ABCD'}
+                }
+
+            item = {
+                'abbr': ds.config_name,
+                'type': 'SimpleJsonlDataset', 
+                'path': fpath,
+                'reader_cfg': reader_cfg,
+                'infer_cfg': infer_cfg,
+                'eval_cfg': eval_cfg
+            }
+            ds_lines.append(f"    dict({json.dumps(item, ensure_ascii=False)}),")
+            
+        datasets_block = "datasets = [\n" + "\n".join(ds_lines) + "\n]"
+
+        # --- 2.2 构建模型列表 ---
+        m_abbr = str(model.name)
+        m_path_url = str(model.path) if model.path else "" 
+        if "http" in m_path_url and "v1" in m_path_url and not m_path_url.endswith("/chat/completions"):
+             if m_path_url.endswith("/"): m_path_url += "chat/completions"
+             else: m_path_url += "/chat/completions"
+        m_key = str(model.api_key) if model.api_key else ""
+        
+        # 关键修改：在这里只准备 Import 语句，不放在 models_block 后面
+        if model.type == "api":
+            model_import_stmt = "from opencompass.models import OpenAI"
+            models_block = f"""
+models = [
+    dict(
+        type=OpenAI,
+        abbr='{m_abbr}',
+        path='{m_abbr}',
+        key='{m_key}',
+        openai_api_base='{m_path_url}',
+        meta_template=dict(
+            round=[
+                dict(role='HUMAN', api_role='HUMAN'),
+                dict(role='BOT', api_role='BOT', generate=True),
+            ],
+        ),
+        query_per_second=1,
+        max_out_len=100,
+        max_seq_len=2048,
+        batch_size=1,
+    )
 ]
-
-# 2. 自动聚合数据集
-# OpenCompass 的数据集配置文件通常会定义一个变量，如 gsm8k_datasets
-# 这里我们需要把这些分散的变量收集到一个名为 datasets 的总列表中
-datasets = []
-for _k, _v in locals().items():
-    if _k.endswith('_datasets') and isinstance(_v, list):
-        datasets.extend(_v)
-
-# 3. 定义模型
+"""
+        else:
+            model_import_stmt = "from opencompass.models import HuggingFaceCausalLM"
+            m_local_path = str(model.path)
+            models_block = f"""
 models = [
     dict(
         type=HuggingFaceCausalLM,
-        abbr='{model.name}',
-        path='{model.path}',           # 模型在容器内的绝对路径
-        tokenizer_path='{model.path}',
+        abbr='{m_abbr}',
+        path='{m_local_path}',
+        tokenizer_path='{m_local_path}',
         model_kwargs=dict(
             device_map={run_cfg['device_map']},
             trust_remote_code=True
@@ -102,117 +199,137 @@ models = [
         run_cfg=dict(num_gpus={run_cfg['num_gpus']}),
     )
 ]
-
-# 4. 结果汇总配置 (可选，自动根据数据集生成汇总表)
-# 简单的自动汇总配置
-summarizer = dict(
-    dataset_abbrs=[ds['abbr'] for ds in datasets],
-    summary_groups=sum([ds.get('summary_groups', []) for ds in datasets], []),
-)
-
-# 5. 指定工作目录
-work_dir = '{self.workspace}'
 """
+
+        # =========================================================
+        # 第三部分：拼接主配置文件
+        # =========================================================
+        main_config_lines = [
+            "import sys",
+            "import os",
+            f"sys.path.append(r'{workspace_str}')", 
+            "from mmengine.config import Config",
+            # 导入通用类
+            "from opencompass.openicl.icl_prompt_template import PromptTemplate",
+            "from opencompass.openicl.icl_retriever import ZeroRetriever",
+            "from opencompass.openicl.icl_inferencer import GenInferencer",
+            "from opencompass.openicl.icl_evaluator import AccEvaluator",
+            "from opencompass.utils.text_postprocessors import first_option_postprocess",
+            # 导入数据集加载器
+            "from dataset_loader import SimpleJsonlDataset",
+            # 👇👇👇 关键修复：模型类必须在 datasets 和 models 定义之前导入 👇👇👇
+            model_import_stmt, 
+            "",
+            datasets_block,
+            "",
+            "# 类型修正",
+            "for ds in datasets:",
+            "    if ds.get('type') == 'SimpleJsonlDataset':",
+            "        ds['type'] = SimpleJsonlDataset",
+            "    if 'infer_cfg' in ds:",
+            "        if ds['infer_cfg'].get('prompt_template', {}).get('type') == 'PromptTemplate':",
+            "            ds['infer_cfg']['prompt_template']['type'] = PromptTemplate",
+            "        if ds['infer_cfg'].get('retriever', {}).get('type') == 'ZeroRetriever':",
+            "            ds['infer_cfg']['retriever']['type'] = ZeroRetriever",
+            "        if ds['infer_cfg'].get('inferencer', {}).get('type') == 'GenInferencer':",
+            "            ds['infer_cfg']['inferencer']['type'] = GenInferencer",
+            "    if 'eval_cfg' in ds:",
+            "        if ds['eval_cfg'].get('evaluator', {}).get('type') == 'AccEvaluator':",
+            "            ds['eval_cfg']['evaluator']['type'] = AccEvaluator",
+            "        if ds['eval_cfg'].get('pred_postprocessor', {}).get('type') == 'first_option_postprocess':",
+            "            ds['eval_cfg']['pred_postprocessor']['type'] = first_option_postprocess",
+            "",
+            models_block,
+            "",
+            "summarizer = dict(",
+            "    dataset_abbrs=[ds['abbr'] for ds in datasets],",
+            "    summary_groups=[],",
+            ")",
+            "",
+            f"work_dir = r'{workspace_str}'",
+            "",
+            "try:",
+            "    del os, sys, SimpleJsonlDataset, OpenAI",
+            "    del PromptTemplate, ZeroRetriever, GenInferencer, AccEvaluator, first_option_postprocess",
+            "except:",
+            "    pass"
+        ]
         
-        # 3. 写入文件
         config_path = os.path.join(self.workspace, f"task_{task_id}_config.py")
         with open(config_path, "w", encoding="utf-8") as f:
-            f.write(config_content)
+            f.write("\n".join(main_config_lines))
         
-        logger.info(f"✅ Generated config file at: {config_path}")
+        logger.info(f"✅ Generated config file: {config_path}")
         return config_path
 
     def run(self, config_path: str, log_file_name: str = "output.log"):
         """
         【进程执行】
-        调用子进程执行 OpenCompass 命令
         """
         log_path = os.path.join(self.workspace, log_file_name)
         
-        # 构造命令: opencompass config.py -w work_dir --debug
-        cmd = [
-            "opencompass", 
-            config_path, 
-            "-w", self.workspace,
-            "--debug"  # 保持 debug 以便排错
-        ]
-
+        # 构造命令
+        cmd = ["opencompass", config_path, "-w", self.workspace, "--debug"]
         logger.info(f"▶️ Starting OpenCompass execution: {' '.join(cmd)}")
 
         with open(log_path, "w", encoding="utf-8") as f_log:
-            # 使用 Popen 调用
+            # 简单调用，阻塞等待完成
+            # TODO: 后续可优化为实时读取 stdout 来更新进度
             process = subprocess.Popen(
                 cmd,
                 stdout=f_log,
-                stderr=subprocess.STDOUT,  # 将 stderr 合并到 stdout
-                text=True,
-                bufsize=1  # 行缓冲，保证日志实时写入
+                stderr=subprocess.STDOUT,
+                text=True
             )
-            
-            # 阻塞等待结束
             return_code = process.wait()
             
             if return_code != 0:
-                logger.error(f"❌ OpenCompass failed with exit code {return_code}. Check logs at {log_path}")
-                raise RuntimeError(f"OpenCompass execution failed. Log: {log_path}")
+                logger.error(f"❌ OpenCompass execution failed. Log: {log_path}")
+                raise RuntimeError(f"OpenCompass exited with code {return_code}")
             
             logger.info("✅ OpenCompass execution finished successfully.")
 
     def parse_results(self) -> List[Dict[str, Any]]:
         """
         【结果解析】
-        查找最新的 summary.csv 并解析结果
+        解析生成的 summary.csv
         """
-        # OpenCompass 输出目录结构: workspace/{timestamp}/summary/summary.csv
         search_pattern = os.path.join(self.workspace, "*", "summary", "summary.csv")
         csv_files = glob.glob(search_pattern)
         
         if not csv_files:
-            logger.warning("⚠️ No summary.csv found. Evaluation might have failed.")
+            logger.warning("⚠️ No summary.csv found.")
             return []
         
-        # 取最新的文件
+        # 取最新生成的 CSV
         latest_csv = max(csv_files, key=os.path.getmtime)
-        logger.info(f"📊 Parsing results from: {latest_csv}")
-        
         try:
-            # 读取 CSV
             df = pd.read_csv(latest_csv)
-            
             results = []
-            # 简单解析逻辑：假设我们要把每一行都存下来
-            # 通常 summary.csv 的列包括 dataset, version, metric, mode, <model_name>
-            
-            # 为了通用性，我们将结果转换为字典列表，交给 TaskService 去决定存哪些字段
-            # 例如: [{'dataset': 'GSM8K', 'accuracy': 88.5}, ...]
             
             for _, row in df.iterrows():
-                # 转换整行为字典
                 row_dict = row.to_dict()
                 
-                # 做一点简单的数据清洗
-                # 提取数据集名称，通常第一列是 dataset
-                clean_result = {
-                    "dataset": row_dict.get("dataset", "Unknown"),
-                    "metric": row_dict.get("metric", "score"),
-                    "mode": row_dict.get("mode", "unknown"),
-                    "raw_data": row_dict  # 保留原始数据以备不时之需
-                }
+                # 简单清洗
+                dataset_abbr = row_dict.get("dataset", "Unknown")
+                metric = row_dict.get("metric", "score")
                 
-                # 尝试查找分数：通常是最后一列，或者列名等于模型名的那一列
-                # 这里做一个简单的启发式查找：找最后一个是数字的列
+                # 提取分数：取最后一列数值列作为分数
                 score = 0.0
                 for col in reversed(df.columns):
                     val = row_dict[col]
-                    if isinstance(val, (int, float)) and col not in ['version']:
-                        score = val
+                    if isinstance(val, (int, float)) and col not in ['version', 'metric', 'mode']:
+                        score = float(val)
                         break
                 
-                clean_result["score"] = score
-                results.append(clean_result)
+                results.append({
+                    "dataset": dataset_abbr,
+                    "metric": metric,
+                    "score": score,
+                    "raw_data": row_dict
+                })
                 
             return results
-
         except Exception as e:
             logger.error(f"❌ Failed to parse CSV: {e}")
             raise e

@@ -1,0 +1,1344 @@
+[
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": null,
+    "count": 114
+  },
+  {
+    "evaluator": "GenericLLMEvaluator",
+    "post_processor": null,
+    "count": 81
+  },
+  {
+    "evaluator": "LMEvaluator",
+    "post_processor": null,
+    "count": 50
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "first_capital_postprocess"
+    },
+    "count": 44
+  },
+  {
+    "evaluator": "MATHEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "math_postprocess_v2"
+    },
+    "count": 22
+  },
+  {
+    "evaluator": "RougeEvaluator",
+    "post_processor": null,
+    "count": 22
+  },
+  {
+    "evaluator": "MBPPEvaluator",
+    "post_processor": null,
+    "count": 20
+  },
+  {
+    "evaluator": "TriviaQAEvaluator",
+    "post_processor": null,
+    "count": 20
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": "ABCD",
+      "type": "first_option_postprocess"
+    },
+    "count": 17
+  },
+  {
+    "evaluator": "HumanEvalEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "humaneval_postprocess_v2"
+    },
+    "count": 17
+  },
+  {
+    "evaluator": "NeedleBenchOriginEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "needlebench_postprocess"
+    },
+    "count": 16
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": "AB",
+      "type": "first_option_postprocess"
+    },
+    "count": 14
+  },
+  {
+    "evaluator": "evaluator",
+    "post_processor": {
+      "options": "Variable",
+      "type": "pred_postprocessor"
+    },
+    "count": 12
+  },
+  {
+    "evaluator": "AccwithDetailsEvaluator",
+    "post_processor": {
+      "options": "ABCD",
+      "type": "first_option_postprocess"
+    },
+    "count": 12
+  },
+  {
+    "evaluator": "Gsm8kEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "gsm8k_postprocess"
+    },
+    "count": 11
+  },
+  {
+    "evaluator": "LCBCodeGenerationEvaluator",
+    "post_processor": null,
+    "count": 10
+  },
+  {
+    "evaluator": "LCBCodeExecutionEvaluator",
+    "post_processor": null,
+    "count": 10
+  },
+  {
+    "evaluator": "LCBTestOutputEvaluator",
+    "post_processor": null,
+    "count": 10
+  },
+  {
+    "evaluator": "LiveMathBenchEvaluator",
+    "post_processor": null,
+    "count": 10
+  },
+  {
+    "evaluator": "MBPPPassKEvaluator",
+    "post_processor": null,
+    "count": 10
+  },
+  {
+    "evaluator": "NQEvaluator",
+    "post_processor": null,
+    "count": 10
+  },
+  {
+    "evaluator": "BBHEvaluator_mcq",
+    "post_processor": {
+      "options": null,
+      "type": "bbh_mcq_postprocess"
+    },
+    "count": 9
+  },
+  {
+    "evaluator": "BBHEvaluator",
+    "post_processor": null,
+    "count": 9
+  },
+  {
+    "evaluator": "LongBenchF1Evaluator",
+    "post_processor": null,
+    "count": 9
+  },
+  {
+    "evaluator": "MusrEvaluator",
+    "post_processor": null,
+    "count": 9
+  },
+  {
+    "evaluator": "NeedleBenchParallelEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "needlebench_postprocess"
+    },
+    "count": 9
+  },
+  {
+    "evaluator": "BigCodeBenchEvaluator",
+    "post_processor": null,
+    "count": 8
+  },
+  {
+    "evaluator": "AveragePPLEvaluator",
+    "post_processor": null,
+    "count": 8
+  },
+  {
+    "evaluator": "BleuEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "general_cn_postprocess"
+    },
+    "count": 8
+  },
+  {
+    "evaluator": "CascadeEvaluator",
+    "post_processor": null,
+    "count": 8
+  },
+  {
+    "evaluator": "LVEvalOPTF1Evaluator",
+    "post_processor": null,
+    "count": 8
+  },
+  {
+    "evaluator": "HumanEvalEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "humaneval_postprocess"
+    },
+    "count": 7
+  },
+  {
+    "evaluator": "BabiLongEvaluator",
+    "post_processor": null,
+    "count": 7
+  },
+  {
+    "evaluator": "AccwithDetailsEvaluator",
+    "post_processor": null,
+    "count": 7
+  },
+  {
+    "evaluator": "HumanEvalPlusEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "humaneval_postprocess_v2"
+    },
+    "count": 7
+  },
+  {
+    "evaluator": "HumanevalXEvaluator",
+    "post_processor": null,
+    "count": 7
+  },
+  {
+    "evaluator": "NeedleBenchMultiEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "needlebench_postprocess"
+    },
+    "count": 7
+  },
+  {
+    "evaluator": "CIBenchEvaluator",
+    "post_processor": null,
+    "count": 6
+  },
+  {
+    "evaluator": "EMEvaluator",
+    "post_processor": null,
+    "count": 6
+  },
+  {
+    "evaluator": "LCPassKEvaluator",
+    "post_processor": null,
+    "count": 6
+  },
+  {
+    "evaluator": "MATHEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "math_postprocess"
+    },
+    "count": 6
+  },
+  {
+    "evaluator": "CircularEvaluator",
+    "post_processor": {
+      "options": "ABCD",
+      "type": "first_option_postprocess"
+    },
+    "count": 6
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "match_answer_pattern"
+    },
+    "count": 5
+  },
+  {
+    "evaluator": "TACOEvaluator",
+    "post_processor": null,
+    "count": 5
+  },
+  {
+    "evaluator": "LongBenchRougeEvaluator",
+    "post_processor": null,
+    "count": 5
+  },
+  {
+    "evaluator": "AccDropEvaluator",
+    "post_processor": {
+      "options": "AB",
+      "type": "first_option_postprocess"
+    },
+    "count": 4
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "first_capital_postprocess_multi"
+    },
+    "count": 4
+  },
+  {
+    "evaluator": "AGIEvalEvaluator",
+    "post_processor": null,
+    "count": 4
+  },
+  {
+    "evaluator": "cascade_evaluator",
+    "post_processor": null,
+    "count": 4
+  },
+  {
+    "evaluator": "MATHVerifyEvaluator",
+    "post_processor": null,
+    "count": 4
+  },
+  {
+    "evaluator": "AccContaminationEvaluator",
+    "post_processor": null,
+    "count": 4
+  },
+  {
+    "evaluator": "AUCROCEvaluator",
+    "post_processor": null,
+    "count": 4
+  },
+  {
+    "evaluator": "TEvalEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "teval_postprocess"
+    },
+    "count": 4
+  },
+  {
+    "evaluator": "MATHAgentEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "math_postprocess"
+    },
+    "count": 4
+  },
+  {
+    "evaluator": "ARCPrizeEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "JiebaRougeEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "DropOpenAIEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "GPQAEvaluator",
+    "post_processor": {
+      "options": "ABCD",
+      "type": "first_option_postprocess"
+    },
+    "count": 3
+  },
+  {
+    "evaluator": "Gsm8kAgentEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "gsm8k_postprocess"
+    },
+    "count": 3
+  },
+  {
+    "evaluator": "HealthBenchEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "InfiniteBench_first_number_postprocess"
+    },
+    "count": 3
+  },
+  {
+    "evaluator": "korbenchEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "MeteorEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "FTSEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "ToxicEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "SciCodeEvaluator",
+    "post_processor": null,
+    "count": 3
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "TheoremQA_postprocess"
+    },
+    "count": 3
+  },
+  {
+    "evaluator": "AccDropEvaluator",
+    "post_processor": {
+      "options": "ABC",
+      "type": "first_option_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": "ABCDE",
+      "type": "first_option_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "APPSEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "CharmReasonEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "charm_reason_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "AccwithDetailsEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "first_capital_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "BleuFloresEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "DS1000Evaluator",
+    "post_processor": {
+      "options": null,
+      "type": "ds1000_matplotlib_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "DS1000ServiceEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "BleuEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "GPQAEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "GPQA_Simple_Eval_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "mathbench_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "HumanevalProEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "IFEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "JudgeEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "LambadaEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "JiebaRougeEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "lcsts_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "LongBenchCodeSimEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "LongBenchRetrievalEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "LVEvalF1Evaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "MatbenchEvaluator_classification",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "MatbenchEvaluator_regression",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "MATHAgentEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "math_postprocess_v2"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "evaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "MATHInternEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "math_intern_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "MBPPProEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "MultiplEEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "SQuAD20Evaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "F1ScoreEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "my_multiple_select_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "AverageRougeScoreEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": "ABC",
+      "type": "first_option_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "NCElementMatchEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "NCExactMatchEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "RMSEEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "strategyqa_pred_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "EMEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "ReCoRD_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "TheoremQA_postprocess_v2"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "TruthfulQAEvaluator",
+    "post_processor": null,
+    "count": 2
+  },
+  {
+    "evaluator": "RougeEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "Xsum_postprocess"
+    },
+    "count": 2
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": "ABCDEFGH",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": "ABCDEFG",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "ATLASLLMEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BBEHEvaluator_mcq",
+    "post_processor": {
+      "options": null,
+      "type": "bbeh_mcq_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "BBEHEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "bbeh_mcq_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "beyondaime_cascade_evaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataMCCEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataPCCEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataSpearmanEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataR2Evaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataAucEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataAccEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataECNumberEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "BiodataMixedScoreEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "CaLMEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "CharmMemoryEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "EMEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "cmrc_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "EMEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "drcd_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "multiple_select_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "CMPhysBenchEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "CodeCompassEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "CrowspairsEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "crowspairs_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "DingoEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "EMEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "gsm8k"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "DS1000Evaluator",
+    "post_processor": {
+      "options": null,
+      "type": "ds1000_completion_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "DS1000InterpreterEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "DS1000Evaluator",
+    "post_processor": {
+      "options": null,
+      "type": "ds1000_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "BleuEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "flores"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "Game24Evaluator",
+    "post_processor": {
+      "options": null,
+      "type": "game24_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "GaoKaoMATHEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "HumanEvalEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "humaneval_postprocess_v3"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "HumanEvalEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "humaneval_internal_v2_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "HumanEvalEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "humaneval_internal_v1_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "HumanevalMultiEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AverageInferencePPLEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "InfiniteBenchendiaEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "InfiniteBenchmathcalcEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "InfiniteBenchretrievekvEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "InternSandboxEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "Judgerbenchv2Evaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "RMBEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "KaoshiEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "gsm100_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "LEvalEMEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "general_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "BPCEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "LongBenchClassificationEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "lsht_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "LongBenchCountEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "LongBenchRougeEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "samsum_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "LongBenchClassificationEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "trec_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "LongBenchF1Evaluator",
+    "post_processor": {
+      "options": null,
+      "type": "triviaqa_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "LongBenchv2Evaluator",
+    "post_processor": {
+      "options": "ABCD",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "LVEvalOPTRougeEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MastermathDatasetv1Evaluator",
+    "post_processor": {
+      "options": "ABCD",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "MatbenchEvaluator_classification_glass",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "Math401Evaluator",
+    "post_processor": {
+      "options": null,
+      "type": "mathbench_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "MedBenchEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MedBenchEvaluator_NLG",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MedBenchEvaluator_Cloze",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MedbulletsEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MedCalcOfficial_Evaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MedmcqaEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MedXpertQAEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MGSM_Evaluator",
+    "post_processor": {
+      "options": null,
+      "type": "mgsm_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "MMLUProBaseEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": "ABCDEFGHIJKLMNOP",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "MAEEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "NeedleBenchATCEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "needlebench_atc_postprocess_v2"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "NejmaibenchEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "NQEvaluatorCN",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "OlympiadBenchEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "olympiadbench_postprocess_v2"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "OmniMathEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "last_capital_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "OpenFinDataKWEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "OpenSWIMSEEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "MathEEDEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "PILLMEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "PJExamEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalFloresEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "pmmeval_flores_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalHumanEvalXLEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalMGSMEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalMHellaswagEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "pmmeval_mhellaswag_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalMIFEvalEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "pmmeval_mifeval_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalMLogiQAEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "pmmeval_mlogiqa_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalMMMLUEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "pmmeval_mmmlu_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "PMMEvalXNLIEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "pmmeval_xnli_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "ProteinLMBenchEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "QuALITYEvaluator",
+    "post_processor": {
+      "options": "ABCD",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "RulerCweEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "RulerFweEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "RulerNiahEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "RulerQaEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "RulerVtEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccwithDetailsEvaluator",
+    "post_processor": {
+      "options": "ABCDEF",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "S3EvalEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "scibench_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "SciKnowEvalEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccScoreStr_Evaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "EDAccEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "smolinstruct_acc_0shot_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "AccEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "smolinstruct_acc_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "SRbenchDatasetEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "mydataset_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "JudgerBenchEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "EMEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "ReCoRD"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "SuperGPQAEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "TabMWPEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "TheoremQAEvaluatorV3",
+    "post_processor": {
+      "options": null,
+      "type": "TheoremQA_postprocess_v3"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "TheoremQAEvaluatorV3",
+    "post_processor": {
+      "options": null,
+      "type": "TheoremQA_postprocess_v4"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "TydiQAEvaluator",
+    "post_processor": null,
+    "count": 1
+  },
+  {
+    "evaluator": "AccwithDetailsEvaluator",
+    "post_processor": {
+      "options": "AB",
+      "type": "first_option_postprocess"
+    },
+    "count": 1
+  },
+  {
+    "evaluator": "RougeEvaluator",
+    "post_processor": {
+      "options": null,
+      "type": "Xsum"
+    },
+    "count": 1
+  }
+]

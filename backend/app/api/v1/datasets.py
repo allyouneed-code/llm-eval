@@ -276,3 +276,16 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
     session.delete(meta)
     session.commit()
     return {"ok": True}
+
+@router.get("/configs")
+def get_all_dataset_configs(session: Session = Depends(get_session)):
+    """
+    获取所有扁平化的数据集配置列表
+    用于测试脚本快速获取 ID，或前端下拉菜单选择
+    """
+    # 简单查出所有配置
+    configs = session.exec(select(DatasetConfig)).all()
+    
+    # 稍微处理一下，带上 Meta 的名字方便辨认 (可选)
+    # 如果只是为了脚本跑通，直接 return configs 即可
+    return configs

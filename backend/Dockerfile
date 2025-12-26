@@ -2,7 +2,7 @@
 
 # 1. 使用包含 CUDA 12.1 和 PyTorch 2.1.2 的官方镜像作为基础
 # "devel" 版本包含了 nvcc 编译器，这对安装 flash-attn 等库是必须的
-FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel
 
 # 设置工作目录
 WORKDIR /app
