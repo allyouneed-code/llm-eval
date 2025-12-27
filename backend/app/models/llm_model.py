@@ -13,10 +13,15 @@ class LLMModel(SQLModel, table=True):
     param_size: str = Field(default="Unknown") 
     
     type: str = Field(default="local") # local 或 api
-    path: str # 本地路径 或 API Base URL
+
+    # 核心路径:
+    # 1. 如果是 HuggingFace: 这里存本地绝对路径，如 "/app/models/llama3"
+    # 2. 如果是 API: 这里存 API 模型 ID，如 "gpt-3.5-turbo" 或 "deepseek-chat"
+    path: str 
     
     # === 优化：API Key 单独拎出来 ===
     # 无论是云端还是私有端，如果有 Key 就填，没 Key 就空着
+    base_url: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(default=None)
     
     # 其他复杂配置 (如 context_window, template_type) 依然丢进 JSON

@@ -20,6 +20,11 @@ class EvaluationMetricRead(EvaluationMetricBase):
 # ==========================================
 class DatasetConfigBase(SQLModel):
     config_name: str
+    
+    # 🆕 新增：任务类型 (规范约定：qa / multiple_choice / cloze)
+    # 用于前端回显和业务逻辑分流
+    task_type: str = "qa" 
+    
     mode: str = "gen" # gen / ppl
     prompt_version: Optional[str] = None
     
@@ -41,7 +46,6 @@ class DatasetConfigCreate(DatasetConfigBase):
     file_path: str  # 必须指定文件路径
 
     # --- 校验 1: 确保所有 cfg 字段都是合法的 JSON ---
-    # 🆕 修改点：在装饰器中加入新字段名 'post_process_cfg', 'few_shot_cfg'
     @field_validator('reader_cfg', 'infer_cfg', 'metric_config', 'post_process_cfg', 'few_shot_cfg')
     def must_be_valid_json(cls, v):
         try:
@@ -52,15 +56,29 @@ class DatasetConfigCreate(DatasetConfigBase):
         except json.JSONDecodeError:
             raise ValueError("Invalid JSON string format")
 
-    # --- 校验 2: Reader 必须包含输入输出定义 ---
+    # --- 校验 2: Reader 必须包含规范约定的字段 ---
     @field_validator('reader_cfg')
     def validate_reader(cls, v):
         try:
             cfg = json.loads(v)
+            
+            # 1. 检查 OpenCompass 运行必需字段
             if 'input_columns' not in cfg or 'output_column' not in cfg:
                 raise ValueError("Reader Config must contain 'input_columns' and 'output_column'")
-        except:
-            pass 
+            
+            # 🆕 2. 检查前端回显必需字段 (规范约定)
+            # 强制要求必须存 mapping，否则拒绝创建
+            if 'mapping' not in cfg:
+                raise ValueError("Reader Config must contain 'mapping' for frontend display")
+            
+            if not isinstance(cfg['mapping'], dict):
+                raise ValueError("'mapping' field must be a dictionary")
+                
+        except json.JSONDecodeError:
+            pass # 格式错误会在 validate_json 中被捕获，这里忽略
+        except Exception as e:
+            # 抛出具体业务错误
+            raise ValueError(f"Reader Config convention error: {str(e)}")
         return v
 
     # --- 校验 3: PPL 模式下的特殊逻辑 ---
@@ -94,6 +112,10 @@ class DatasetMetaBase(SQLModel):
     name: str
     category: str = "Base"
     description: Optional[str] = None
+    
+    # 🆕 保持之前添加的软删除字段定义（如果之前在 Model 加了，Schema 最好也体现，或者在 Read 中体现）
+    # 但通常 Base 里不放 is_deleted 避免创建时被篡改，这里只需 Read 里有即可
+    # is_deleted: bool = False 
 
 class DatasetMetaCreate(DatasetMetaBase):
     pass
@@ -101,6 +123,8 @@ class DatasetMetaCreate(DatasetMetaBase):
 class DatasetMetaRead(DatasetMetaBase):
     id: int
     created_at: datetime
+    # 🆕 软删除标记
+    is_deleted: bool 
     
     # 🌟 关键：在列表页直接返回 configs
     configs: List[DatasetConfigRead] = []

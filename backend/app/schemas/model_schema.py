@@ -11,6 +11,7 @@ class ModelBase(SQLModel):
     api_key: Optional[str] = None
     config_json: Optional[str] = "{}"
     description: Optional[str] = None
+    base_url: Optional[str] = None
 
 # 1. 接收前端创建请求的模型 (Create DTO)
 # 用户只需要填这些，id 和 created_at 不需要填

@@ -80,7 +80,8 @@ def preview_dataset(file: UploadFile = File(...)):
 @router.get("/{meta_id}/preview")
 def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session)):
     meta = session.get(DatasetMeta, meta_id)
-    if not meta or not meta.configs:
+    # 🆕 增加对 is_deleted 的检查
+    if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到相关数据文件")
     
     config = meta.configs[0]
@@ -92,7 +93,8 @@ def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session))
 @router.get("/{meta_id}/download")
 def download_dataset_file(meta_id: int, session: Session = Depends(get_session)):
     meta = session.get(DatasetMeta, meta_id)
-    if not meta or not meta.configs:
+    # 🆕 增加对 is_deleted 的检查
+    if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到文件")
     
     config = meta.configs[0]
@@ -103,12 +105,15 @@ def download_dataset_file(meta_id: int, session: Session = Depends(get_session))
     return FileResponse(path=config.file_path, filename=filename, media_type='application/octet-stream')
 
 # ==========================================
-# 3. 核心接口：创建与读取 (已重构支持多配置)
+# 3. 核心接口：创建与读取 (已重构支持多配置 + 软删除)
 # ==========================================
 
 @router.get("/stats", response_model=List[CategoryStat])
 def get_dataset_stats(session: Session = Depends(get_session)):
-    statement = select(DatasetMeta.category, func.count(DatasetMeta.id)).group_by(DatasetMeta.category)
+    # 🆕 统计时过滤掉已删除的数据集
+    statement = select(DatasetMeta.category, func.count(DatasetMeta.id))\
+        .where(DatasetMeta.is_deleted == False)\
+        .group_by(DatasetMeta.category)
     results = session.exec(statement).all()
     stats = [{"category": row[0], "count": row[1]} for row in results]
     return stats
@@ -134,6 +139,7 @@ def create_dataset(
     meta = session.exec(statement).first()
     
     if not meta:
+        # 完全新建
         meta = DatasetMeta(
             name=name,
             category=category,
@@ -142,6 +148,19 @@ def create_dataset(
         session.add(meta)
         session.commit()
         session.refresh(meta)
+    else:
+        # 🆕 如果已存在
+        if meta.is_deleted:
+            # 逻辑：复活它
+            meta.is_deleted = False
+            # 可选：更新属性
+            meta.category = category
+            if description:
+                meta.description = description
+            session.add(meta)
+            session.commit()
+            session.refresh(meta)
+        # 如果存在且未删除，则视为 Append 模式，继续执行后续逻辑
     
     # 2. 保存文件 (物理存储)
     # 优化：文件名不再绑定 mode，改为 base 或直接使用原始扩展名
@@ -160,8 +179,7 @@ def create_dataset(
         if not isinstance(configs_list, list):
             raise ValueError("configs_json must be a list")
     except Exception as e:
-        # 如果解析失败，清理刚上传的文件（如果是新建的）
-        # 这里简单起见暂不删除，因为 meta 可能已存在
+        # 如果解析失败，抛出错误
         raise HTTPException(status_code=400, detail=f"配置格式错误: {str(e)}")
 
     processed_count = 0
@@ -184,7 +202,7 @@ def create_dataset(
                     cfg_data.get("metric_config", "{}")
                 )
 
-            # D. Pydantic 校验 (包含对 post_process_cfg 等新字段的校验)
+            # D. Pydantic 校验
             validated_config = DatasetConfigCreate(**cfg_data)
             
             # E. 查重与入库
@@ -235,7 +253,8 @@ def read_datasets(
 ):
     offset = (page - 1) * page_size
     
-    query = select(DatasetMeta)
+    # 🆕 增加默认过滤条件：未删除
+    query = select(DatasetMeta).where(DatasetMeta.is_deleted == False)
     
     if category and category != 'All':
         query = query.where(DatasetMeta.category == category)
@@ -266,16 +285,12 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
     if not meta:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    for config in meta.configs:
-        if os.path.exists(config.file_path):
-            try:
-                os.remove(config.file_path)
-            except:
-                pass
-        
-    session.delete(meta)
+    # 🆕 软删除逻辑：只标记，不物理删除
+    meta.is_deleted = True
+    session.add(meta)
     session.commit()
-    return {"ok": True}
+    
+    return {"ok": True, "detail": "Dataset soft deleted"}
 
 @router.get("/configs")
 def get_all_dataset_configs(session: Session = Depends(get_session)):
@@ -285,7 +300,4 @@ def get_all_dataset_configs(session: Session = Depends(get_session)):
     """
     # 简单查出所有配置
     configs = session.exec(select(DatasetConfig)).all()
-    
-    # 稍微处理一下，带上 Meta 的名字方便辨认 (可选)
-    # 如果只是为了脚本跑通，直接 return configs 即可
     return configs

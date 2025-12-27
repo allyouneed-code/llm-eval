@@ -21,6 +21,10 @@ class DatasetMeta(SQLModel, table=True):
     category: str = Field(default="Base")
     description: Optional[str] = None
     
+    # 🆕 新增：软删除标记
+    is_deleted: bool = Field(default=False)
+    
+    # 关系定义保持原样，不需要加 cascade="all, delete-orphan" 了
     configs: List["DatasetConfig"] = Relationship(back_populates="meta")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -42,6 +46,7 @@ class DatasetConfig(SQLModel, table=True):
     
     # 🌟 关键字段：确保这些都在！
     file_path: str 
+    task_type: str = Field(default="multiple_choice", index=True)
     mode: str = Field(default="gen")         # gen / ppl
     prompt_version: Optional[str] = None
     display_metric: str = Field(default="Accuracy") 
