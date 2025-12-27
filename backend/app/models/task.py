@@ -1,6 +1,7 @@
 from typing import List, Optional, TYPE_CHECKING # 引入 TYPE_CHECKING 避免运行时循环导入
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
+from sqlalchemy import Column, Text
 from app.models.links import TaskDatasetLink
 from app.models.result import EvaluationResult
 if TYPE_CHECKING:
@@ -20,7 +21,7 @@ class EvaluationTask(SQLModel, table=True):
     # ----------------------------------
     scheme_id: Optional[int] = Field(default=None) #关联的方案ID
 
-    result_summary: Optional[str] = Field(default=None)
+    result_summary: Optional[str] = Field(default=None, sa_column=Column(Text))
     report_path: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     finished_at: Optional[datetime] = Field(default=None)

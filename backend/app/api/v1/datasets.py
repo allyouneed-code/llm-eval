@@ -387,11 +387,39 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
     if not meta:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
+    # ==========================================
+    # 🆕 新增逻辑：删除关联的物理文件
+    # ==========================================
+    files_to_delete = set()
+    
+    # 1. 收集该数据集关联的所有唯一文件路径
+    if meta.configs:
+        for config in meta.configs:
+            path = config.file_path
+            # 确保路径存在，且不是 'official://' 等特殊标识
+            if path and isinstance(path, str) and not path.startswith("official://"):
+                files_to_delete.add(path)
+    
+    # 2. 执行物理删除
+    for file_path in files_to_delete:
+        try:
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                os.remove(file_path)
+                print(f"[Delete] 已删除文件: {file_path}")
+        except Exception as e:
+            # 打印错误但不阻断流程，防止因文件权限问题导致无法删除数据库记录
+            print(f"[Warning] 删除文件失败 {file_path}: {e}")
+
+    # ==========================================
+    
+    # 3. 数据库层面处理 (保持软删除或改为硬删除)
+    # 既然文件都删了，通常建议这里也可以考虑直接硬删除：session.delete(meta)
+    # 但为了保持与 create_dataset 中“同名复活”逻辑兼容，目前维持软删除逻辑是安全的。
     meta.is_deleted = True
     session.add(meta)
     session.commit()
     
-    return {"ok": True, "detail": "Dataset soft deleted"}
+    return {"ok": True, "detail": "Dataset deleted and associated files removed"}
 
 @router.get("/configs")
 def get_all_dataset_configs(session: Session = Depends(get_session)):
