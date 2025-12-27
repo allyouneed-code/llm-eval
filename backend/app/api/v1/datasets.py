@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select, func, or_
 from sqlalchemy.orm import selectinload 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from app.core.database import get_session
 from app.models.dataset import DatasetMeta, DatasetConfig
@@ -21,28 +21,170 @@ UPLOAD_DIR = "data/datasets"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ==========================================
-# 1. 辅助函数
+# 1. 核心工具：数据扁平化 (Flatten Logic)
 # ==========================================
 
+def _flatten_row(row: Dict[str, Any], parent_key: str = '', sep: str = '_') -> Dict[str, Any]:
+    """
+    递归扁平化 JSON 行，并智能处理 choices 列表
+    例如: 
+    input: { "question": { "stem": "Q1", "choices": [{"label": "A", "text": "Apple"}] } }
+    output: { "question_stem": "Q1", "question_choices_A": "Apple" }
+    """
+    items = {}
+    for k, v in row.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        
+        if isinstance(v, dict):
+            # 递归处理字典
+            items.update(_flatten_row(v, new_key, sep=sep))
+            
+        elif isinstance(v, list):
+            # 🌟 智能处理列表：尝试识别为选项列表
+            is_choice_list = False
+            extracted = {}
+            
+            # 检查是否符合 [{"label": "A", "text": "..."}] 或类似结构
+            # 仅当列表非空且元素为字典时检查
+            if v and isinstance(v[0], dict):
+                # 收集所有可能的 key
+                first_keys = v[0].keys()
+                # 常见的 label key
+                label_key = next((lk for lk in ['label', 'key', 'option'] if lk in first_keys), None)
+                # 常见的 content key
+                text_key = next((tk for tk in ['text', 'content', 'value'] if tk in first_keys), None)
+                
+                if label_key and text_key:
+                    is_choice_list = True
+                    for item in v:
+                        if label_key in item and text_key in item:
+                            label_val = item[label_key]
+                            # 生成列名，如 question_choices_A
+                            col_name = f"{new_key}{sep}{label_val}"
+                            extracted[col_name] = item[text_key]
+            
+            if is_choice_list:
+                items.update(extracted)
+            else:
+                # 如果不是标准选项列表，保留原样 (转字符串或保留对象)
+                # 为了兼容 Pandas/CSV，通常转为 JSON 字符串更安全，但这里暂保留原值
+                items[new_key] = v
+        else:
+            items[new_key] = v
+            
+    return items
+
+def _process_and_save_file(upload_file: UploadFile, save_path: str):
+    """
+    读取上传文件，执行扁平化处理，并保存到磁盘
+    """
+    filename = upload_file.filename.lower()
+    
+    # 仅针对 JSONL/JSON 进行高级处理
+    if filename.endswith(".jsonl") or filename.endswith(".json"):
+        rows = []
+        try:
+            # 读取内容
+            content = upload_file.file.read()
+            # 重置指针以便后续可能的操作 (虽然这里读完就处理了)
+            upload_file.file.seek(0)
+            
+            # 解析
+            if filename.endswith(".jsonl"):
+                # JSONL: 逐行解析
+                lines = content.decode('utf-8').splitlines()
+                for line in lines:
+                    if line.strip():
+                        rows.append(json.loads(line))
+            else:
+                # JSON: 整体解析
+                data = json.loads(content)
+                if isinstance(data, list):
+                    rows = data
+                else:
+                    rows = [data]
+            
+            # 执行扁平化
+            flattened_rows = [_flatten_row(row) for row in rows]
+            
+            # 转换为 DataFrame 并保存为 JSONL (标准化格式)
+            # 即使原文件是 JSON，我们也存为 JSONL，因为 OpenCompass 对 JSONL 支持最好
+            df = pd.DataFrame(flattened_rows)
+            
+            # 强制转换为 jsonl 格式保存，覆盖原始后缀逻辑
+            # 但为了保持 save_path 的扩展名一致性，我们这里如果 save_path 是 .json，也写成 json 格式
+            # 建议：统一内部存储为 .jsonl 格式更优，但为了逻辑简单，我们按扩展名输出
+            
+            if save_path.endswith(".jsonl"):
+                df.to_json(save_path, orient='records', lines=True, force_ascii=False)
+            else:
+                df.to_json(save_path, orient='records', force_ascii=False)
+                
+        except Exception as e:
+            print(f"Flattening failed: {e}, falling back to raw copy")
+            # 如果解析失败，回退到直接拷贝
+            upload_file.file.seek(0)
+            with open(save_path, "wb") as buffer:
+                shutil.copyfileobj(upload_file.file, buffer)
+    else:
+        # CSV/Excel 直接拷贝，不做处理
+        upload_file.file.seek(0)
+        with open(save_path, "wb") as buffer:
+            shutil.copyfileobj(upload_file.file, buffer)
+
 def _parse_preview_data(filepath_or_buffer, filename: str):
-    """解析文件前几行用于预览"""
+    """解析文件前几行用于预览 (应用扁平化逻辑)"""
     filename = filename.lower()
     df = None
     try:
-        if filename.endswith(".csv"):
+        # 如果是上传对象 (UploadFile.file)，读取内容并解析
+        # 这里的 filepath_or_buffer 可能是 bytes IO，也可能是路径字符串
+        
+        is_path = isinstance(filepath_or_buffer, str)
+        
+        if filename.endswith(".jsonl") or filename.endswith(".json"):
+            # 针对 JSON/JSONL，先手动读取前几行进行扁平化，而不是直接用 pd.read_json
+            rows = []
+            if is_path:
+                # 读本地文件 (预览已保存的)
+                with open(filepath_or_buffer, 'r', encoding='utf-8') as f:
+                    if filename.endswith(".jsonl"):
+                        for _ in range(5):
+                            line = f.readline()
+                            if not line: break
+                            rows.append(json.loads(line))
+                    else:
+                        # JSON 只能全读 (或者读一部分但很难控制结构)，这里假设文件不大或只预览已保存的
+                        data = json.load(f)
+                        rows = data[:5] if isinstance(data, list) else [data]
+            else:
+                # 读内存流 (上传时的预览)
+                # 注意：流只能读一次，读完要 seek 回去，或者只读一部分
+                # 这里简单处理：读取前 5 行 (针对 JSONL)
+                if filename.endswith(".jsonl"):
+                    for _ in range(5):
+                        line = filepath_or_buffer.readline()
+                        if not line: break
+                        rows.append(json.loads(line))
+                    filepath_or_buffer.seek(0) # 重置
+                else:
+                    # JSON 流，全读
+                    content = filepath_or_buffer.read()
+                    filepath_or_buffer.seek(0)
+                    data = json.loads(content)
+                    rows = data[:5] if isinstance(data, list) else [data]
+            
+            # 扁平化预览数据
+            flat_rows = [_flatten_row(row) for row in rows]
+            df = pd.DataFrame(flat_rows)
+            
+        elif filename.endswith(".csv"):
             df = pd.read_csv(filepath_or_buffer, nrows=5, on_bad_lines='skip')
-        elif filename.endswith(".json"):
-            df = pd.read_json(filepath_or_buffer)
-            df = df.head(5)
-        elif filename.endswith(".jsonl"):
-            with pd.read_json(filepath_or_buffer, lines=True, chunksize=5) as reader:
-                for chunk in reader:
-                    df = chunk
-                    break
         elif filename.endswith(".xlsx") or filename.endswith(".xls"):
             df = pd.read_excel(filepath_or_buffer, nrows=5)
         
         if df is not None:
+            # 处理 NaN
             df = df.where(pd.notnull(df), None)
             return {
                 "columns": list(df.columns),
@@ -63,8 +205,6 @@ def _extract_metric_name(eval_cfg_json: str, default: str = "Accuracy") -> str:
         if 'AccEvaluator' in s_type: return 'Accuracy'
         if 'BleuEvaluator' in s_type: return 'BLEU'
         if 'RougeEvaluator' in s_type: return 'ROUGE'
-        if 'ToxicEvaluator' in s_type: return 'Toxicity'
-        if 'Pass' in s_type or 'Code' in s_type: return 'Pass@k'
         return default
     except:
         return default
@@ -75,12 +215,12 @@ def _extract_metric_name(eval_cfg_json: str, default: str = "Accuracy") -> str:
 
 @router.post("/preview")
 def preview_dataset(file: UploadFile = File(...)):
+    # 直接使用 file.file (SpooledTemporaryFile)
     return _parse_preview_data(file.file, file.filename)
 
 @router.get("/{meta_id}/preview")
 def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session)):
     meta = session.get(DatasetMeta, meta_id)
-    # 🆕 增加对 is_deleted 的检查
     if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到相关数据文件")
     
@@ -93,7 +233,6 @@ def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session))
 @router.get("/{meta_id}/download")
 def download_dataset_file(meta_id: int, session: Session = Depends(get_session)):
     meta = session.get(DatasetMeta, meta_id)
-    # 🆕 增加对 is_deleted 的检查
     if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到文件")
     
@@ -105,12 +244,11 @@ def download_dataset_file(meta_id: int, session: Session = Depends(get_session))
     return FileResponse(path=config.file_path, filename=filename, media_type='application/octet-stream')
 
 # ==========================================
-# 3. 核心接口：创建与读取 (已重构支持多配置 + 软删除)
+# 3. 核心接口：创建与读取
 # ==========================================
 
 @router.get("/stats", response_model=List[CategoryStat])
 def get_dataset_stats(session: Session = Depends(get_session)):
-    # 🆕 统计时过滤掉已删除的数据集
     statement = select(DatasetMeta.category, func.count(DatasetMeta.id))\
         .where(DatasetMeta.is_deleted == False)\
         .group_by(DatasetMeta.category)
@@ -123,55 +261,41 @@ def create_dataset(
     name: str = Form(...),
     category: str = Form(...),
     description: Optional[str] = Form(None),
-    
-    # 格式示例：[{"config_name": "v1", "mode": "gen", "reader_cfg": "...", "post_process_cfg": "..."}]
     configs_json: str = Form(...), 
-    
     file: UploadFile = File(...),
     session: Session = Depends(get_session)
 ):
-    """
-    创建数据集 (Meta) + 批量创建配置 (Configs) + 上传文件
-    """
-    
-    # 1. 检查或创建元数据 (DatasetMeta)
+    # 1. 检查或创建元数据
     statement = select(DatasetMeta).where(DatasetMeta.name == name)
     meta = session.exec(statement).first()
     
     if not meta:
-        # 完全新建
-        meta = DatasetMeta(
-            name=name,
-            category=category,
-            description=description
-        )
+        meta = DatasetMeta(name=name, category=category, description=description)
         session.add(meta)
         session.commit()
         session.refresh(meta)
     else:
-        # 🆕 如果已存在
         if meta.is_deleted:
-            # 逻辑：复活它
             meta.is_deleted = False
-            # 可选：更新属性
             meta.category = category
-            if description:
-                meta.description = description
+            if description: meta.description = description
             session.add(meta)
             session.commit()
             session.refresh(meta)
-        # 如果存在且未删除，则视为 Append 模式，继续执行后续逻辑
     
-    # 2. 保存文件 (物理存储)
-    # 优化：文件名不再绑定 mode，改为 base 或直接使用原始扩展名
-    file_ext = os.path.splitext(file.filename)[1]
-    save_name = f"{name}_base{file_ext}" # 使用 _base 后缀表示这是通用源文件
+    # 2. 保存并处理文件 (ETL)
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    # 强制统一使用 jsonl 作为存储格式 (如果原文件是 JSON/JSONL)
+    if file_ext in ['.json', '.jsonl']:
+        save_name = f"{name}_base.jsonl"
+    else:
+        save_name = f"{name}_base{file_ext}"
+        
     save_path = os.path.join(UPLOAD_DIR, save_name)
     abs_path = os.path.abspath(save_path)
     
-    file.file.seek(0)
-    with open(save_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # 🌟 调用处理函数：保存并扁平化
+    _process_and_save_file(file, save_path)
         
     # 3. 解析并批量处理配置
     try:
@@ -179,7 +303,6 @@ def create_dataset(
         if not isinstance(configs_list, list):
             raise ValueError("configs_json must be a list")
     except Exception as e:
-        # 如果解析失败，抛出错误
         raise HTTPException(status_code=400, detail=f"配置格式错误: {str(e)}")
 
     processed_count = 0
@@ -187,44 +310,31 @@ def create_dataset(
 
     for cfg_data in configs_list:
         try:
-            # A. 自动补全必要字段
             cfg_data["meta_id"] = meta.id
             cfg_data["file_path"] = abs_path
             
-            # B. 确保 config_name 存在，若无则自动生成
             if not cfg_data.get("config_name"):
                 mode_suffix = cfg_data.get("mode", "gen")
                 cfg_data["config_name"] = f"{name}_{mode_suffix}"
                 
-            # C. 自动提取 Display Metric (如果前端没传)
             if not cfg_data.get("display_metric"):
-                cfg_data["display_metric"] = _extract_metric_name(
-                    cfg_data.get("metric_config", "{}")
-                )
+                cfg_data["display_metric"] = _extract_metric_name(cfg_data.get("metric_config", "{}"))
 
-            # D. Pydantic 校验
             validated_config = DatasetConfigCreate(**cfg_data)
             
-            # E. 查重与入库
-            # 检查该 Meta 下是否已存在同名配置
             existing = next((c for c in meta.configs if c.config_name == validated_config.config_name), None)
             
             if existing:
-                # 更新模式
                 existing.mode = validated_config.mode
-                existing.file_path = validated_config.file_path # 更新路径
+                existing.file_path = validated_config.file_path
                 existing.reader_cfg = validated_config.reader_cfg
                 existing.infer_cfg = validated_config.infer_cfg
                 existing.metric_config = validated_config.metric_config
                 existing.display_metric = validated_config.display_metric
-                
-                # 🆕 更新新字段
                 existing.post_process_cfg = validated_config.post_process_cfg
                 existing.few_shot_cfg = validated_config.few_shot_cfg
-                
                 session.add(existing)
             else:
-                # 创建模式
                 db_config = DatasetConfig(**validated_config.model_dump())
                 session.add(db_config)
             
@@ -235,7 +345,6 @@ def create_dataset(
             continue
 
     if processed_count == 0 and errors:
-        # 如果一个都没成功，抛出第一个错误
         raise HTTPException(status_code=400, detail=f"导入失败: {errors[0]}")
 
     session.commit()
@@ -252,20 +361,13 @@ def read_datasets(
     private_only: bool = False
 ):
     offset = (page - 1) * page_size
-    
-    # 🆕 增加默认过滤条件：未删除
     query = select(DatasetMeta).where(DatasetMeta.is_deleted == False)
     
     if category and category != 'All':
         query = query.where(DatasetMeta.category == category)
     
     if keyword:
-        query = query.where(
-            or_(
-                DatasetMeta.name.contains(keyword),
-                DatasetMeta.description.contains(keyword)
-            )
-        )
+        query = query.where(or_(DatasetMeta.name.contains(keyword), DatasetMeta.description.contains(keyword)))
     
     if private_only:
         query = query.join(DatasetConfig).where(DatasetConfig.file_path.not_like("official://%"))
@@ -285,7 +387,6 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
     if not meta:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    # 🆕 软删除逻辑：只标记，不物理删除
     meta.is_deleted = True
     session.add(meta)
     session.commit()
@@ -294,10 +395,5 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
 
 @router.get("/configs")
 def get_all_dataset_configs(session: Session = Depends(get_session)):
-    """
-    获取所有扁平化的数据集配置列表
-    用于测试脚本快速获取 ID，或前端下拉菜单选择
-    """
-    # 简单查出所有配置
     configs = session.exec(select(DatasetConfig)).all()
     return configs

@@ -11,8 +11,7 @@ import TaskStatusTag from './components/task/TaskStatusTag.vue'
 import TaskCreateDialog from './components/task/TaskCreateDialog.vue'
 import TaskDetailDrawer from './components/task/TaskDetailDrawer.vue'
 
-// 使用 Composable (复用之前的逻辑)
-// 修改：解构出分页相关的属性和方法
+// 使用 Composable
 const { 
   taskList, modelList, datasetList, fetchTasks, fetchBasicData,
   pagination, handlePageChange, handleSizeChange 
@@ -21,9 +20,11 @@ const {
 // UI 状态
 const createDialogVisible = ref(false)
 const detailDrawerVisible = ref(false)
-const currentTask = ref(null)
+// 🌟 修改：改用 ID 和 初始数据 的组合，以支持详情页的独立刷新
+const currentTaskId = ref(null) 
+const currentTaskInitial = ref(null)
 
-// 辅助函数：获取模型名称 (因为模型表通常比较小，前端映射也没问题，或者您也可以改为后端连表)
+// 辅助函数：获取模型名称
 const getModelName = (id) => {
   const found = modelList.value.find(m => m.id === id)
   return found ? found.name : `Model-${id}`
@@ -60,7 +61,8 @@ const getTaskDatasetDisplay = (taskRow) => {
 
 // 打开详情/报告
 const handleViewDetail = (row) => {
-  currentTask.value = row
+  currentTaskId.value = row.id          // 传递 ID 给 Drawer 以便轮询
+  currentTaskInitial.value = row        // 传递当前行数据作为初始展示
   detailDrawerVisible.value = true
 }
 
@@ -251,8 +253,8 @@ const handleRefresh = () => {
 
     <TaskDetailDrawer 
       v-model:visible="detailDrawerVisible"
-      :task="currentTask"
-      :model-name="currentTask ? getModelName(currentTask.model_id) : ''"
+      :task-id="currentTaskId"
+      :initial-task="currentTaskInitial"
     />
   </div>
 </template>
