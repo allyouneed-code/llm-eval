@@ -384,29 +384,52 @@ models = [
     def parse_results(self) -> List[Dict[str, Any]]:
         """
         【结果解析】
-        解析生成的 summary.csv
+        直接在 Task 工作目录下寻找 OpenCompass 生成的 CSV 结果
+        路径模式：{workspace}/{timestamp}/summary/summary_{timestamp}.csv
         """
-        search_pattern = os.path.join(self.workspace, "*", "summary", "summary.csv")
-        csv_files = glob.glob(search_pattern)
+        # 1. 精准匹配模式
+        # self.workspace 已经是 task_{id} 的独立目录了
+        # 我们只需要跨过中间那层动态生成的时间戳目录 ("*") 即可
+        pattern = os.path.join(self.workspace, "*", "summary", "summary_*.csv")
         
+        # 使用 glob 快速查找
+        csv_files = glob.glob(pattern)
+        
+        # 2. 如果没找到，说明运行可能失败了
         if not csv_files:
-            logger.warning("⚠️ No summary.csv found.")
-            return []
+            error_msg = f"❌ Analysis Failed: No summary CSV found in {self.workspace}. Please check the running logs."
+            logger.error(error_msg)
+            
+            # 尝试读取日志末尾，辅助排查
+            log_path = os.path.join(self.workspace, "output.log")
+            if os.path.exists(log_path):
+                try:
+                    with open(log_path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()[-20:] # 读取最后20行
+                        logger.error(f"Last 20 lines of {log_path}:\n" + "".join(lines))
+                except:
+                    pass
+            
+            raise FileNotFoundError(error_msg)
         
-        # 取最新生成的 CSV
+        # 3. 找到最新生成的一个文件 (以防同一个目录下有多次运行残留)
         latest_csv = max(csv_files, key=os.path.getmtime)
+        logger.info(f"📊 Parsing results from: {latest_csv}")
+        
         try:
+            # 4. 解析 CSV
             df = pd.read_csv(latest_csv)
             results = []
             
             for _, row in df.iterrows():
                 row_dict = row.to_dict()
                 
-                # 简单清洗
+                # 获取数据集简称和指标
                 dataset_abbr = row_dict.get("dataset", "Unknown")
                 metric = row_dict.get("metric", "score")
                 
-                # 提取分数：取最后一列数值列作为分数
+                # 智能提取分数：取最后一列数值列作为分数
+                # OpenCompass 的 CSV 最后一列通常就是最终得分
                 score = 0.0
                 for col in reversed(df.columns):
                     val = row_dict[col]
@@ -420,7 +443,10 @@ models = [
                     "score": score,
                     "raw_data": row_dict
                 })
-                
+            
+            if not results:
+                 raise ValueError("summary CSV was found but contained no valid data rows.")
+                 
             return results
         except Exception as e:
             logger.error(f"❌ Failed to parse CSV: {e}")

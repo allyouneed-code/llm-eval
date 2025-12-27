@@ -86,6 +86,8 @@ function getAutoPostProcessCfg(metric, taskType) {
 
 function generatePromptTemplate(taskType, mapping) {
   if (taskType === TASK_TYPES.CHOICE.value) {
+    // 确保这里的 mapping key 对应的是实际的 CSV 列名
+    // 注意：模板里用 {MappingKey}，而不是 {SlotKey}
     let template = `Question: {${mapping.question}}\n`
     if (mapping.optA) template += `A. {${mapping.optA}}\n`
     if (mapping.optB) template += `B. {${mapping.optB}}\n`
@@ -114,7 +116,9 @@ export function generateConfigPayload(importState) {
 
   const readerCfg = {
     input_columns: inputColumns,
-    output_column: outputColumn
+    output_column: outputColumn,
+    // 🌟 核心修复：必须包含 mapping 字段，否则后端 Schema 校验会失败 (400 Bad Request)
+    mapping: columnMapping 
   }
 
   // 2. Infer Config

@@ -21,11 +21,8 @@ class TaskService:
         self.session = session
 
     # create_task, delete_task, get_task 等方法保持不变...
-    # (此处省略未修改的方法，请保留原文件中的这些代码)
     
     def create_task(self, task_in: TaskCreate) -> EvaluationTask:
-        # ... (保持原有的 create_task 逻辑不变) ...
-        # 请确保把原文件中的 create_task 代码完整保留在这里
         model = self.session.get(LLMModel, task_in.model_id)
         if not model:
             raise HTTPException(status_code=404, detail="所选模型不存在")
@@ -96,7 +93,7 @@ class TaskService:
         return self.session.exec(select(EvaluationTask)).all()
 
     # ====================================================
-    # 🌟 核心修改：真实的评测逻辑
+    # 🌟 核心逻辑
     # ====================================================
     def run_evaluation_logic(self, task_id: int):
         """
@@ -136,7 +133,6 @@ class TaskService:
 
             # 3. 初始化 Runner
             # 为每个任务创建一个独立的工作目录，避免冲突
-            # 路径示例: workspace/tasks/task_123
             task_workspace = os.path.join(os.getcwd(), "workspace", "tasks", f"task_{task_id}")
             runner = OpenCompassRunner(workspace=task_workspace)
             
@@ -153,9 +149,8 @@ class TaskService:
             self.session.add(task)
             self.session.commit()
 
-            # 5. 执行评测 (这是一个耗时阻塞操作)
+            # 5. 执行评测
             print(f"🚀 [Task {task_id}] Running OpenCompass...")
-            # TODO: 未来可以传入 callback 函数来实时更新 10%~90% 的进度
             runner.run(config_path)
             
             # 运行完成后，进度跳到 90%
@@ -168,10 +163,6 @@ class TaskService:
             raw_results = runner.parse_results()
             
             table_data = [] # 用于前端展示的摘要表
-
-            # 建立一个 config_name -> config 对象的映射，方便查找 meta 信息
-            # 假设 dataset 的 abbr (OpenCompass输出的dataset列) 与我们的 config_name 或 name 对应
-            # 这里做一个模糊匹配或简化处理：尝试匹配 config_name 或 meta.name
             
             for res in raw_results:
                 # 寻找对应的 config 对象
@@ -179,14 +170,11 @@ class TaskService:
                 dataset_abbr = res['dataset']
                 
                 for cfg in configs:
-                    # OpenCompass 的 abbr 通常由我们生成的配置文件中的 abbr 字段决定
-                    # 在 config_factory 或 runner 中我们可能用 name 作为 abbr
-                    # 这里做一个简单的包含匹配
+                    # 模糊匹配 config name
                     if cfg.meta.name in dataset_abbr or dataset_abbr in cfg.meta.name:
                         matched_config = cfg
                         break
                 
-                # 如果没匹配到，选第一个（兜底），或者跳过
                 target_config_id = matched_config.id if matched_config else configs[0].id
                 dataset_name_display = matched_config.meta.name if matched_config else dataset_abbr
                 dataset_category = matched_config.meta.category if matched_config else "Unknown"
@@ -235,25 +223,63 @@ class TaskService:
     def _generate_summary(self, table_data: List[Dict]) -> Dict:
         """
         根据结果生成雷达图和表格数据
+        【改进】统一量纲 (0-1 -> 0-100) 并处理特殊指标
         """
         if not table_data:
             return {"radar": [], "table": []}
 
-        # 1. 计算能力维度的平均分 (Radar Data)
         capability_stats = {}
+        
         for item in table_data:
             cat = item['capability']
+            try:
+                raw_score = float(item['score'])
+            except (ValueError, TypeError):
+                raw_score = 0.0
+                
+            metric = str(item['metric']).lower()
+            
+            # --- 归一化逻辑 ---
+            norm_score = raw_score
+            
+            # 1. 识别负向指标 (越小越好)
+            # 例如: ppl (Perplexity), loss, bpb (Bits Per Byte)
+            # 这类指标不适合直接参与 0-100 的雷达图平均，暂时打标跳过或保留原值
+            # (如果同一能力维度下混合了 Acc 和 PPL，直接平均会很奇怪，所以这里策略是尽量只取正向指标平均)
+            is_negative_metric = any(x in metric for x in ['ppl', 'bpb', 'loss'])
+            
+            if is_negative_metric:
+                # 负向指标暂时不参与雷达图的“能力得分”计算
+                # 除非你希望显示一个很低的分数（因为 PPL 越低越好，但在雷达图上低分会被认为是弱）
+                continue 
+            else:
+                # 2. 识别 0-1 分数 (Acc, BLEU, ROUGE 等)
+                # 启发式规则：如果分数在 0.0 到 1.0 之间，大概率是小数制，转换为百分制
+                if 0.0 <= raw_score <= 1.0:
+                    norm_score = raw_score * 100.0
+            
             if cat not in capability_stats:
                 capability_stats[cat] = []
-            capability_stats[cat].append(item['score'])
+            
+            capability_stats[cat].append(norm_score)
         
         radar_data = []
         for cat, scores in capability_stats.items():
-            avg_score = sum(scores) / len(scores) if scores else 0
+            if not scores:
+                # 如果该维度下只有 PPL 指标，可能 scores 为空
+                # 这种情况下，给一个默认显示（比如 0 或者不显示）
+                continue
+
+            # 计算平均分
+            avg_score = sum(scores) / len(scores)
+            
+            # 限制最大显示为 100 (防止部分异常指标溢出)
+            display_score = min(avg_score, 100.0)
+            
             radar_data.append({
                 "name": cat,
                 "max": 100,
-                "score": round(avg_score, 1)
+                "score": round(display_score, 1)
             })
             
         return {

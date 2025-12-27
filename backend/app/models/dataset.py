@@ -1,6 +1,7 @@
 from typing import List, Optional, TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
+from sqlalchemy import Column, Text
 # 引入 Link 表
 from app.models.links import TaskDatasetLink
 from app.models.scheme import SchemeDatasetLink, EvaluationScheme
@@ -52,17 +53,15 @@ class DatasetConfig(SQLModel, table=True):
     display_metric: str = Field(default="Accuracy") 
     
     # 复杂配置 (存 JSON)
-    reader_cfg: str = Field(default="{}") 
-    infer_cfg: str = Field(default="{}")
-    metric_config: str = Field(default="{}") 
+    reader_cfg: str = Field(default="{}", sa_column=Column(Text)) 
+    infer_cfg: str = Field(default="{}", sa_column=Column(Text))
+    metric_config: str = Field(default="{}", sa_column=Column(Text)) 
     
-    # 后处理配置 (对应 OpenCompass 的 pred_postprocessor)
-    # 例如: {"type": "opencompass.utils.text_postprocessors.first_capital_postprocess"}
-    post_process_cfg: str = Field(default="{}") 
+    # 后处理配置
+    post_process_cfg: str = Field(default="{}", sa_column=Column(Text)) 
     
-    # 少样本配置 (对应 OpenCompass 的 few_shot)
-    # 例如: {"count": 5, "template": "..."}
-    few_shot_cfg: str = Field(default="{}") 
+    # 少样本配置
+    few_shot_cfg: str = Field(default="{}", sa_column=Column(Text))
     
     # =========================
     # 🆕 新增字段 End

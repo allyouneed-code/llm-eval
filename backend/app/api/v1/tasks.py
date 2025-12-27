@@ -1,6 +1,10 @@
 import json
+import os
+import time
+import asyncio
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse  # 🌟 新增引入
 from sqlmodel import Session, select, func
 from sqlalchemy.orm import selectinload
 
@@ -8,30 +12,23 @@ from app.core.database import get_session
 from app.models.task import EvaluationTask
 from app.models.links import TaskDatasetLink
 from app.models.scheme import EvaluationScheme 
-from app.models.dataset import DatasetConfig # 需要引入 DatasetConfig
+from app.models.dataset import DatasetConfig
 from app.schemas.task_schema import TaskCreate, TaskRead, TaskPagination
 from app.worker.celery_app import run_evaluation_task
 from app.services.task_service import TaskService
 
 router = APIRouter()
 
+# ... (create_task 保持不变) ...
 @router.post("/", response_model=TaskRead)
 def create_task(
     task_in: TaskCreate, 
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session)
 ):
-    """
-    创建新的评测任务
-    """
     final_config_ids = []
     
-    # ==========================================
-    # 🌟 核心修复：强制预加载 configs，防止懒加载失效
-    # ==========================================
     if task_in.scheme_id:
-        # 使用 select + selectinload 替代简单的 session.get
-        # 这能确保 scheme.configs 100% 被加载出来
         statement = (
             select(EvaluationScheme)
             .where(EvaluationScheme.id == task_in.scheme_id)
@@ -42,65 +39,50 @@ def create_task(
         if not scheme:
             raise HTTPException(status_code=404, detail="Selected Scheme not found")
         
-        # 提取 ID
         final_config_ids = [c.id for c in scheme.configs]
-        
-        # 🐛 调试打印：看看后端到底读到了什么
-        print(f"🔍 [CreateTask] Scheme={scheme.name}, ConfigIDs={final_config_ids}")
-
     else:
         final_config_ids = task_in.config_ids
 
-    # 序列化存储
     json_list = json.dumps(final_config_ids)
     
-    # 2. 创建任务对象
     db_task = EvaluationTask(
         model_id=task_in.model_id,
         scheme_id=task_in.scheme_id,
         status="pending",
         progress=0,
-        datasets_list=json_list # 存入数据库
+        datasets_list=json_list
     )
     
     session.add(db_task)
     session.commit()
     session.refresh(db_task)
     
-    # 3. 创建关联记录
     for cid in final_config_ids:
         link = TaskDatasetLink(task_id=db_task.id, dataset_config_id=cid)
         session.add(link)
     
     session.commit()
     
-    # 4. 触发评测
     run_evaluation_task.delay(db_task.id)
     
     return db_task
 
+# ... (read_tasks 保持不变) ...
 @router.get("/", response_model=TaskPagination) 
 def read_tasks(
     page: int = 1,        
     page_size: int = 10,  
     session: Session = Depends(get_session)
 ):
-    """
-    获取任务列表 (分页模式)
-    """
-    # 计算 offset
     offset = (page - 1) * page_size
-
-    # A. 查询总条数 (不带 limit/offset)
     count_statement = select(func.count()).select_from(EvaluationTask)
     total = session.exec(count_statement).one()
 
-    # B. 查询当前页数据 
     statement = (
         select(EvaluationTask, EvaluationScheme.name)
         .outerjoin(EvaluationScheme, EvaluationTask.scheme_id == EvaluationScheme.id)
-        .offset(offset)     # 使用计算出的 offset
-        .limit(page_size)   # 使用 page_size
+        .offset(offset)
+        .limit(page_size)
         .order_by(EvaluationTask.id.desc())
     )
     
@@ -112,7 +94,6 @@ def read_tasks(
         task_dict["scheme_name"] = s_name 
         tasks_with_details.append(task_dict)
         
-    # C. 返回分页结构
     return {
         "total": total,
         "page": page,
@@ -120,6 +101,7 @@ def read_tasks(
         "items": tasks_with_details
     }
 
+# ... (read_task 保持不变) ...
 @router.get("/{task_id}", response_model=TaskRead)
 def read_task(task_id: int, session: Session = Depends(get_session)):
     task = session.get(EvaluationTask, task_id)
@@ -127,6 +109,64 @@ def read_task(task_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
+# ==========================================
+# 🌟 新增：实时日志流接口
+# ==========================================
+@router.get("/{task_id}/log")
+async def get_task_log(task_id: int, session: Session = Depends(get_session)):
+    """
+    流式返回任务运行日志 (Server-Sent Events 风格)
+    """
+    # 1. 确认任务存在
+    task = session.get(EvaluationTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+        
+    # 2. 定位日志文件
+    # 路径规则需与 TaskService 保持一致
+    workspace = os.path.join(os.getcwd(), "workspace", "tasks", f"task_{task_id}")
+    log_path = os.path.join(workspace, "output.log")
+    
+    async def log_generator():
+        """
+        异步生成器：像 tail -f 一样读取文件
+        """
+        # A. 等待日志文件生成 (最多等 10秒)
+        retries = 0
+        while not os.path.exists(log_path):
+            if retries > 20: # 10s
+                yield "Waiting for log file creation timeout...\n"
+                return
+            yield f"Waiting for logs... (task status: {task.status})\n"
+            await asyncio.sleep(0.5)
+            retries += 1
+            
+        # B. 开始读取
+        with open(log_path, "r", encoding="utf-8", errors='replace') as f:
+            # 先读取已有内容
+            yield f.read()
+            
+            # 持续监听新内容
+            while True:
+                line = f.readline()
+                if line:
+                    yield line
+                else:
+                    # 如果读不到新行，检查任务是否已结束
+                    # 注意：为了性能，这里不频繁查库，而是依赖文件不再写入+一定超时，或者简单点一直挂着直到前端断开
+                    # 为了更严谨，我们可以重新查询一次任务状态
+                    session.refresh(task)
+                    if task.status in ["success", "failed"]:
+                        # 任务结束，且文件已读完 -> 退出流
+                        break
+                    
+                    # 任务未结束，等待新日志写入
+                    await asyncio.sleep(0.5)
+
+    return StreamingResponse(log_generator(), media_type="text/plain")
+
+
+# ... (delete_task 保持不变) ...
 @router.delete("/{task_id}")
 def delete_task(
     task_id: int, 

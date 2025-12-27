@@ -1,112 +1,163 @@
 <script setup>
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
-// 1. 引入你在 task.js 中定义的 getTask 方法
 import { getTask } from '@/api/task'
 import { CircleCheck, CircleClose, Loading } from '@element-plus/icons-vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
-  taskId: { type: [Number, String], default: null }, // 接收任务 ID
-  initialTask: { type: Object, default: null }       // 接收列表页传来的初始数据（快照）
+  taskId: { type: [Number, String], default: null },
+  initialTask: { type: Object, default: null }
 })
 
 const emit = defineEmits(['update:visible'])
 
 const loading = ref(false)
-const taskDetail = ref(null) // 存储接口返回的完整详情
-const terminalLogs = ref([]) // 模拟日志存储
-let logInterval = null       // 轮询定时器
-let myChart = null           // ECharts 实例
+const taskDetail = ref(null)
+const terminalLogs = ref([]) 
+const logAbortController = ref(null) // 用于中断日志流连接
+let statusInterval = null          // 仅用于更新进度条和状态
+let myChart = null
 
-// 核心：优先使用接口返回的详情，如果没有则回退到 initialTask
+// 优先使用详情接口数据
 const task = computed(() => taskDetail.value || props.initialTask)
 
-// 解析后端返回的 JSON 结果字符串
+// 结果解析
 const taskResult = computed(() => {
   if (!task.value?.result_summary) return null
   try {
-    return JSON.parse(task.value.result_summary)
+    const res = JSON.parse(task.value.result_summary)
+    if (!res || !res.radar || !res.table) return { radar: [], table: [] }
+    return res
   } catch (e) {
-    console.error("Result parse error:", e)
-    return null
+    return { radar: [], table: [] }
   }
 })
 
-// 监听弹窗打开状态
+// 监听弹窗打开
 watch(() => props.visible, async (val) => {
   if (val && props.taskId) {
-    // 打开时立即获取最新数据
+    // 1. 先获取一次最新状态
     await fetchTaskDetail()
     
-    // 根据状态决定下一步操作
-    if (task.value?.status === 'success') {
-      nextTick(() => initRadarChart())
-    } else if (task.value?.status === 'running' || task.value?.status === 'pending') {
-      startLogPolling()
+    // 2. 无论状态如何，都尝试拉取日志（如果是已完成任务，后端会一次性返回全部日志）
+    startLogStream()
+
+    // 3. 如果任务未完成，开启状态轮询以更新进度条
+    if (['pending', 'running'].includes(task.value?.status)) {
+      startStatusPolling()
+    } else if (task.value?.status === 'success') {
+      // 如果已完成，延迟渲染图表
+      setTimeout(() => nextTick(() => initRadarChart()), 350)
     }
   } else {
-    // 关闭时清理状态
-    stopPolling()
-    taskDetail.value = null
-    terminalLogs.value = []
+    stopAll()
   }
 })
 
-// 主动调用 API 获取详情
+// 获取任务详情 API
 const fetchTaskDetail = async () => {
   if (!props.taskId) return
-  // 仅在初次无数据时显示 loading，避免轮询时闪烁
   if (!taskDetail.value) loading.value = true
-  
   try {
-    // 调用 task.js 中的 getTask
     const res = await getTask(props.taskId)
     taskDetail.value = res
   } catch (e) {
-    console.error("Failed to fetch task detail:", e)
+    console.error("Fetch detail failed:", e)
   } finally {
     loading.value = false
   }
 }
 
-// 开启轮询 (用于实时更新日志和进度)
-const startLogPolling = () => {
-  if (logInterval) clearInterval(logInterval)
-  terminalLogs.value = ['> Connecting to runner...', '> Waiting for updates...']
+// 🌟 核心：实时日志流处理
+const startLogStream = async () => {
+  // 清理旧连接
+  if (logAbortController.value) logAbortController.value.abort()
+  logAbortController.value = new AbortController()
   
-  logInterval = setInterval(async () => {
-    // 1. 刷新任务状态
-    await fetchTaskDetail()
-    
-    // 2. 检查状态变化
-    if (task.value?.status === 'success') {
-      terminalLogs.value.push(`> [System] Task Finished successfully.`)
-      stopPolling()
-      nextTick(() => initRadarChart())
-      return
-    }
-    if (task.value?.status === 'failed') {
-      terminalLogs.value.push(`> [System] Task Failed: ${task.value.error_msg}`)
-      stopPolling()
+  terminalLogs.value = []
+  let buffer = '' // 用于处理分块数据
+
+  try {
+    // 构造流式接口 URL (复用 Vite 环境变量)
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+    const url = `${baseUrl.replace(/\/$/, '')}/v1/tasks/${props.taskId}/log`
+
+    const response = await fetch(url, {
+      signal: logAbortController.value.signal
+    })
+
+    if (!response.ok) {
+      terminalLogs.value.push(`> Failed to connect log stream: ${response.statusText}`)
       return
     }
 
-    // 3. 模拟滚动日志 (因为目前后端暂无实时日志流接口，这里仅做演示效果)
-    // 实际项目中，你可以将 taskDetail.value.latest_log 展示在这里
-    const msgs = ['Running inference...', 'Evaluating batch...', 'Processing metrics...', 'GPU utility: 85%']
-    if (task.value?.status === 'running') {
-       terminalLogs.value.push(`[${new Date().toLocaleTimeString()}] ${msgs[Math.floor(Math.random()*msgs.length)]}`)
-       scrollToBottom()
+    // 获取 Reader
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      
+      const chunk = decoder.decode(value, { stream: true })
+      buffer += chunk
+      
+      // 按行切分处理
+      if (buffer.includes('\n')) {
+        const lines = buffer.split('\n')
+        // 保留最后一段可能不完整的数据
+        buffer = lines.pop() 
+        
+        lines.forEach(line => {
+          terminalLogs.value.push(line)
+        })
+        scrollToBottom()
+      }
     }
     
-  }, 2000) // 每2秒轮询一次
+    // 流结束（任务完成或出错），再刷新一次最终状态
+    await fetchTaskDetail()
+    if (task.value?.status === 'success') {
+      setTimeout(() => nextTick(() => initRadarChart()), 100)
+    }
+
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      terminalLogs.value.push(`> Connection interrupted: ${e.message}`)
+    }
+  }
 }
 
-const stopPolling = () => {
-  if (logInterval) {
-    clearInterval(logInterval)
-    logInterval = null
+// 状态轮询 (仅更新进度和 Status)
+const startStatusPolling = () => {
+  if (statusInterval) clearInterval(statusInterval)
+  
+  statusInterval = setInterval(async () => {
+    await fetchTaskDetail()
+    
+    // 如果任务结束，停止轮询 (日志流可能还在读最后一点数据，所以日志流单独管理退出)
+    if (['success', 'failed'].includes(task.value?.status)) {
+      clearInterval(statusInterval)
+      statusInterval = null
+    }
+  }, 3000)
+}
+
+const stopAll = () => {
+  if (statusInterval) {
+    clearInterval(statusInterval)
+    statusInterval = null
+  }
+  if (logAbortController.value) {
+    logAbortController.value.abort()
+    logAbortController.value = null
+  }
+  taskDetail.value = null
+  terminalLogs.value = []
+  if (myChart) {
+    myChart.dispose()
+    myChart = null
   }
 }
 
@@ -117,16 +168,20 @@ const scrollToBottom = () => {
   })
 }
 
-// 初始化雷达图
+// 初始化图表 (保持之前的修复版本)
 const initRadarChart = () => {
   const chartDom = document.getElementById('result-radar')
-  if (!chartDom || !taskResult.value?.radar) return
-  
+  if (!chartDom) return
+  if (!taskResult.value?.radar || taskResult.value.radar.length === 0) return
+  if (chartDom.clientWidth === 0) {
+    setTimeout(initRadarChart, 100)
+    return
+  }
+
   if (myChart) myChart.dispose()
   myChart = echarts.init(chartDom)
   
   const radarData = taskResult.value.radar
-  
   const option = {
     tooltip: {},
     radar: { 
@@ -148,12 +203,13 @@ const initRadarChart = () => {
     }]
   }
   myChart.setOption(option)
-  window.addEventListener('resize', () => myChart?.resize())
+  myChart.resize()
+  window.addEventListener('resize', () => myChart && myChart.resize())
 }
 
 onUnmounted(() => {
-  stopPolling()
-  if (myChart) myChart.dispose()
+  stopAll()
+  window.removeEventListener('resize', () => myChart && myChart.resize())
 })
 </script>
 
@@ -205,9 +261,15 @@ onUnmounted(() => {
 
       <div v-if="task.status === 'success' && taskResult" class="result-section">
         <div class="section-title">评测结果分析</div>
-        
         <div class="chart-wrapper">
-          <div id="result-radar" style="width: 100%; height: 300px;"></div>
+          <div id="result-radar" style="width: 100%; height: 300px; min-height: 300px;"></div>
+           <el-empty 
+             v-if="!taskResult.radar || taskResult.radar.length === 0" 
+             description="暂无维度分析数据" 
+             :image-size="100" 
+             style="height: 300px; display: none;" 
+             :style="{ display: (!taskResult.radar || taskResult.radar.length === 0) ? 'flex' : 'none' }"
+          />
         </div>
         
         <el-table :data="taskResult.table" border stripe size="small">
@@ -226,7 +288,7 @@ onUnmounted(() => {
         <div class="section-title">运行日志</div>
         <div class="terminal-box" id="terminal-box">
           <div v-for="(log, i) in terminalLogs" :key="i" class="log-line">{{ log }}</div>
-          <div v-if="task.status === 'running'" class="log-line blink">_</div>
+          <div v-if="task.status === 'running' || task.status === 'pending'" class="log-line blink">_</div>
         </div>
       </div>
 
@@ -238,7 +300,6 @@ onUnmounted(() => {
 .loading-box { height: 200px; display: flex; align-items: center; justify-content: center; }
 .detail-container { padding: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
 
-/* 状态 Banner */
 .status-banner { 
   display: flex; align-items: center; justify-content: space-between; 
   padding: 20px; border-radius: 12px; margin-bottom: 24px; color: #fff;
@@ -264,15 +325,15 @@ onUnmounted(() => {
 }
 
 .result-section { margin-bottom: 30px; }
-.chart-wrapper { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; margin-bottom: 15px; padding: 10px; }
+.chart-wrapper { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; margin-bottom: 15px; padding: 10px; position: relative; }
 
 /* 终端模拟 */
 .terminal-box { 
-  background: #1e1e1e; color: #a6e22e; padding: 15px; height: 250px; 
+  background: #1e1e1e; color: #a6e22e; padding: 15px; height: 350px; /* 增加高度以便查看更多日志 */
   overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; 
   border-radius: 8px; line-height: 1.5; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
 }
-.log-line { white-space: pre-wrap; word-break: break-all; }
-.blink { animation: blink 1s infinite; }
+.log-line { white-space: pre-wrap; word-break: break-all; margin-bottom: 2px; }
+.blink { animation: blink 1s infinite; font-weight: bold; }
 @keyframes blink { 50% { opacity: 0; } }
 </style>
