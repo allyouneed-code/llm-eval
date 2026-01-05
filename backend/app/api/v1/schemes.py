@@ -13,51 +13,44 @@ router = APIRouter()
 
 @router.post("/", response_model=EvaluationSchemeRead)
 def create_scheme(scheme_in: EvaluationSchemeCreate, session: Session = Depends(get_session)):
-    # 1. 查重
+    # 1. 查重 (注意：这里查的是所有，包括已删除的，保证数据库唯一性约束不冲突)
     existing = session.exec(select(EvaluationScheme).where(EvaluationScheme.name == scheme_in.name)).first()
     if existing:
+        if not existing.is_active:
+             raise HTTPException(status_code=400, detail="Scheme with this name exists but is deleted. Please restore it or use a different name.")
         raise HTTPException(status_code=400, detail="Scheme name already exists")
     
     # 2. 创建方案基础对象
     db_scheme = EvaluationScheme(
         name=scheme_in.name,
-        description=scheme_in.description
+        description=scheme_in.description,
+        is_active=True # 显式设为 True
     )
-    # 先 add 但不 commit，为了让它生成 ID
     session.add(db_scheme)
     
     # 3. 处理关联 (Many-to-Many)
     current_config_ids = []
     if scheme_in.dataset_config_ids:
-        # 查询出实际存在的 configs
         statement = select(DatasetConfig).where(DatasetConfig.id.in_(scheme_in.dataset_config_ids))
         configs = session.exec(statement).all()
-        
-        if not configs and scheme_in.dataset_config_ids:
-            # 如果传了ID但数据库查不到，说明ID无效
-            print(f"⚠️ Warning: Config IDs {scheme_in.dataset_config_ids} not found in DB.")
-        
-        # SQLModel 魔法：直接赋值对象列表，它会自动维护中间表
         db_scheme.configs = configs
-        # 记录一下 ID 用于直接返回，防止 refresh 后懒加载失效
         current_config_ids = [c.id for c in configs]
         
     session.commit()
     session.refresh(db_scheme)
     
-    # 4. 返回
     return EvaluationSchemeRead(
         id=db_scheme.id,
         name=db_scheme.name,
         description=db_scheme.description,
-        # 手动填入刚才关联的 ID
         dataset_config_ids=current_config_ids, 
         created_at=db_scheme.created_at
     )
 
 @router.get("/", response_model=List[EvaluationSchemeRead])
 def read_schemes(session: Session = Depends(get_session)):
-    statement = select(EvaluationScheme).options(selectinload(EvaluationScheme.configs))
+    # 🌟 修改点：只查询 is_active 为 True 的方案
+    statement = select(EvaluationScheme).where(EvaluationScheme.is_active == True).options(selectinload(EvaluationScheme.configs))
     schemes = session.exec(statement).all()
     
     results = []
@@ -66,7 +59,6 @@ def read_schemes(session: Session = Depends(get_session)):
             id=s.id,
             name=s.name,
             description=s.description,
-            # 提取关联对象的 ID
             dataset_config_ids=[c.id for c in s.configs],
             created_at=s.created_at
         ))
@@ -75,9 +67,12 @@ def read_schemes(session: Session = Depends(get_session)):
 @router.delete("/{scheme_id}")
 def delete_scheme(scheme_id: int, session: Session = Depends(get_session)):
     scheme = session.get(EvaluationScheme, scheme_id)
-    if not scheme:
+    if not scheme or not scheme.is_active: # 如果已经是 False 也算找不到
         raise HTTPException(status_code=404, detail="Scheme not found")
     
-    session.delete(scheme)
+    # 🌟 修改点：执行软删除
+    scheme.is_active = False
+    session.add(scheme)
     session.commit()
+    
     return {"ok": True}

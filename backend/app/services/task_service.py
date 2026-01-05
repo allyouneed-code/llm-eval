@@ -286,3 +286,152 @@ class TaskService:
             "radar": radar_data,
             "table": table_data
         }
+    def compare_tasks(self, task_ids: List[int]) -> Dict[str, Any]:
+        """
+        对比多个任务的结果 (必须基于同一 Scheme)
+        """
+        if len(task_ids) < 2:
+            raise HTTPException(status_code=400, detail="至少选择两个任务进行对比")
+            
+        # 1. 批量查询任务
+        tasks = self.session.exec(
+            select(EvaluationTask).where(EvaluationTask.id.in_(task_ids))
+        ).all()
+        
+        if len(tasks) != len(task_ids):
+             raise HTTPException(status_code=404, detail="部分任务未找到")
+
+        # 2. 校验 Scheme 一致性
+        base_scheme_id = tasks[0].scheme_id
+        if not base_scheme_id:
+             raise HTTPException(status_code=400, detail="无法对比未绑定方案的任务")
+             
+        for t in tasks:
+            if t.scheme_id != base_scheme_id:
+                raise HTTPException(status_code=400, detail="所有任务必须属于同一个评测方案")
+        
+        scheme = self.session.get(EvaluationScheme, base_scheme_id)
+        scheme_name = scheme.name if scheme else "Unknown Scheme"
+
+        # 3. 准备模型元数据 (Model Metadata)
+        # 结构: [{id: 1, name: "Llama2", task_id: 101}, ...]
+        models_meta = []
+        task_id_to_model_name = {}
+        
+        for t in tasks:
+            model = self.session.get(LLMModel, t.model_id)
+            model_name = model.name if model else f"Unknown-{t.model_id}"
+            # 如果同一个模型跑了多次，加上 Task ID 区分
+            display_name = f"{model_name} (#{t.id})"
+            
+            models_meta.append({
+                "task_id": t.id,
+                "model_name": model_name,
+                "display_name": display_name,
+                "finished_at": t.finished_at
+            })
+            task_id_to_model_name[t.id] = display_name
+
+        # 4. 拉取结果并结构化
+        # 我们需要构建一个以 {dataset_name + metric} 为 key 的字典
+        # table_map = { "GSM8K (Accuracy)": { 101: 85.5, 102: 88.0 }, ... }
+        table_map = {}
+        
+        # 同时收集能力维度用于雷达图
+        # capability_map = { 101: {"Reasoning": [80, 90], "Coding": [20]}, 102: ... }
+        capability_map = {t.id: {} for t in tasks}
+
+        # 批量拉取所有结果
+        all_results = self.session.exec(
+            select(EvaluationResult).where(EvaluationResult.task_id.in_(task_ids))
+        ).all()
+        
+        for res in all_results:
+            # --- 4.1 准备表格数据 ---
+            row_key = f"{res.dataset_name} ({res.metric_name})"
+            if row_key not in table_map:
+                table_map[row_key] = {
+                    "dataset": res.dataset_name,
+                    "metric": res.metric_name,
+                    "scores": {} # { task_id: score }
+                }
+            table_map[row_key]["scores"][res.task_id] = res.score
+            
+            # --- 4.2 准备雷达图数据 (需要查 Dataset Config 拿 capability) ---
+            # 这里的性能优化点：可以预先批量查好 DatasetConfig，避免循环查库
+            # 既然是同 Scheme，数据集配置是一样的，这里简单处理，假设 dataset_name 能对应上
+            # 更好的做法是在 EvaluationResult 里冗余存储 capability，或者在这里多查一次
+            # 暂时用一种简单的方式：回查 DatasetConfig (实际项目中建议加缓存)
+            config = self.session.get(DatasetConfig, res.dataset_config_id)
+            if config:
+                cat = config.meta.category
+                if cat not in capability_map[res.task_id]:
+                    capability_map[res.task_id][cat] = []
+                
+                # 简单的归一化逻辑 (同 _generate_summary)
+                score_val = res.score
+                if 0 <= score_val <= 1.0: score_val *= 100
+                capability_map[res.task_id][cat].append(score_val)
+
+        # 5. 构建最终输出格式
+        
+        # 5.1 组装 Table List
+        final_table = []
+        for key, info in table_map.items():
+            row = {
+                "dataset_metric": key,
+                "dataset": info['dataset'],
+                "metric": info['metric']
+            }
+            # 填入每个任务的分数
+            base_score = None # 用于计算 diff (以第一个任务为基准)
+            
+            for i, task_id in enumerate(task_ids):
+                score = info["scores"].get(task_id, None)
+                row[f"task_{task_id}"] = score
+                
+                # 计算与第一个任务的 Diff
+                if i == 0:
+                    base_score = score
+                else:
+                    if base_score is not None and score is not None:
+                        row[f"diff_{task_id}"] = round(score - base_score, 2)
+                    else:
+                        row[f"diff_{task_id}"] = None
+            
+            final_table.append(row)
+
+        # 5.2 组装 Radar Data
+        radar_indicators = [] # ECharts indicator { name: 'Math', max: 100 }
+        radar_series = []     # ECharts series data
+        
+        # 收集所有出现过的能力维度
+        all_categories = set()
+        for t_map in capability_map.values():
+            all_categories.update(t_map.keys())
+        
+        sorted_cats = sorted(list(all_categories))
+        radar_indicators = [{"name": c, "max": 100} for c in sorted_cats]
+        
+        for task_id in task_ids:
+            task_scores = []
+            for cat in sorted_cats:
+                scores_list = capability_map[task_id].get(cat, [])
+                if scores_list:
+                    avg = sum(scores_list) / len(scores_list)
+                    task_scores.append(round(min(avg, 100), 1))
+                else:
+                    task_scores.append(0) # 缺失维度补0
+            
+            radar_series.append({
+                "name": task_id_to_model_name[task_id],
+                "value": task_scores
+            })
+
+        return {
+            "scheme_name": scheme_name,
+            "models": models_meta,
+            "radar_indicators": radar_indicators,
+            "radar_data": radar_series,
+            "table_data": final_table
+        }

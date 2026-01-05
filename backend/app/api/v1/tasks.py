@@ -13,7 +13,7 @@ from app.models.task import EvaluationTask
 from app.models.links import TaskDatasetLink
 from app.models.scheme import EvaluationScheme 
 from app.models.dataset import DatasetConfig
-from app.schemas.task_schema import TaskCreate, TaskRead, TaskPagination
+from app.schemas.task_schema import TaskCreate, TaskRead, TaskPagination, TaskCompareRequest, TaskCompareResponse
 from app.worker.celery_app import run_evaluation_task
 from app.services.task_service import TaskService
 
@@ -179,3 +179,14 @@ def delete_task(
         raise HTTPException(status_code=404, detail="Task not found")
         
     return {"status": "success", "message": f"Task {task_id} has been deleted"}
+
+@router.post("/compare", response_model=TaskCompareResponse)
+def compare_tasks_api(
+    req: TaskCompareRequest, 
+    session: Session = Depends(get_session)
+):
+    """
+    对比指定的多个任务 (Task IDs)
+    """
+    task_service = TaskService(session)
+    return task_service.compare_tasks(req.task_ids)

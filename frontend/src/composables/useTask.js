@@ -8,6 +8,8 @@ export function useTaskData() {
   const taskList = ref([])
   const modelList = ref([])
   const datasetList = ref([]) // 原始数据集列表
+
+  const isPollingPaused = ref(false)
   
   // === 新增：分页状态 ===
   const pagination = reactive({
@@ -80,9 +82,17 @@ export function useTaskData() {
   }
 
   // 3. 启动轮询
-  const startPolling = (interval = 3000) => {
+const startPolling = (interval = 3000) => {
+    // 先立即拉取一次
     fetchTasks()
-    pollingTimer = setInterval(fetchTasks, interval)
+    
+    // 启动定时器
+    pollingTimer = setInterval(() => {
+      // 🌟 核心修改：只有在“未暂停”时才拉取数据
+      if (!isPollingPaused.value) {
+        fetchTasks()
+      }
+    }, interval)
   }
 
   const stopPolling = () => {
@@ -102,10 +112,11 @@ export function useTaskData() {
     taskList,
     modelList,
     datasetList,
-    pagination,       // 导出
-    handlePageChange, // 导出
-    handleSizeChange, // 导出
+    pagination,
+    handlePageChange,
+    handleSizeChange,
     fetchTasks,
-    fetchBasicData
+    fetchBasicData,
+    isPollingPaused 
   }
 }

@@ -20,7 +20,6 @@ const {
 // UI 状态
 const createDialogVisible = ref(false)
 const detailDrawerVisible = ref(false)
-// 🌟 修改：改用 ID 和 初始数据 的组合，以支持详情页的独立刷新
 const currentTaskId = ref(null) 
 const currentTaskInitial = ref(null)
 
@@ -59,10 +58,10 @@ const getTaskDatasetDisplay = (taskRow) => {
   return grouped
 }
 
-// 打开详情/报告
+// 打开详情
 const handleViewDetail = (row) => {
-  currentTaskId.value = row.id          // 传递 ID 给 Drawer 以便轮询
-  currentTaskInitial.value = row        // 传递当前行数据作为初始展示
+  currentTaskId.value = row.id          
+  currentTaskInitial.value = row        
   detailDrawerVisible.value = true
 }
 

@@ -36,6 +36,11 @@ const route = useRoute() // <--- 修改点 2：获取当前路由对象
             <el-icon><DataLine /></el-icon>
             <span>评测任务</span>
           </el-menu-item>
+          
+          <el-menu-item index="/tasks/compare">
+            <el-icon><Histogram /></el-icon>
+            <span>评测对比</span>
+          </el-menu-item>
         </el-menu>
       </el-aside>
 

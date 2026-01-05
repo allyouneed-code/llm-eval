@@ -20,3 +20,6 @@ http://localhost
 
 4. 停止服务
 docker-compose down
+
+sk-OjjN3nmNeSZxEE8c2QJz985fdY3b9XegsKi7lTcl8z6Sr2de
+https://api.chatanywhere.tech/v1/chat/completions

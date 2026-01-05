@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel
-from typing import List, Optional
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 # 基础字段
@@ -28,6 +28,7 @@ class TaskRead(SQLModel):
     created_at: datetime
     error_msg: Optional[str] = None
     scheme_name: Optional[str] = None
+    scheme_id: Optional[int] = None 
 
 # 3. 分页响应包装类
 class TaskPagination(SQLModel):
@@ -35,3 +36,13 @@ class TaskPagination(SQLModel):
     page: int           # 当前页码
     page_size: int      # 每页大小
     items: List[TaskRead] # 具体的任务列表
+
+class TaskCompareRequest(SQLModel):
+    task_ids: List[int]
+
+class TaskCompareResponse(SQLModel):
+    scheme_name: str
+    models: List[Dict[str, Any]]  # 包含 id, name, creation_time 等
+    radar_data: List[Dict[str, Any]] # 雷达图数据 series
+    radar_indicators: List[Dict[str, Any]] # 雷达图维度 indicators
+    table_data: List[Dict[str, Any]] # 详细对比表

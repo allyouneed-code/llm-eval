@@ -2,6 +2,7 @@
 services:
   # 1. 前端服务 (Nginx + Vue)
   frontend:
+    image: my-llm-eval-frontend:v1
     build: ./frontend
     ports:
       - "8080:80"  # 浏览器访问 http://localhost
@@ -11,6 +12,7 @@ services:
 
   # 2. 后端 API 服务
   backend:
+    image: my-llm-eval-backend:v1
     build: ./backend
     environment:
       - DATABASE_URL=mysql+pymysql://user:password@db:3306/opencompass_db

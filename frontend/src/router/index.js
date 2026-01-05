@@ -15,14 +15,20 @@ const router = createRouter({
       component: ModelView
     },
     {
-      path: '/datasets', // 新增路由
+      path: '/datasets', 
       name: 'datasets',
       component: () => import('../views/DatasetView.vue')
     },
     {
-      path: '/tasks', // 新增
+      path: '/tasks', 
       name: 'tasks',
       component: () => import('../views/TaskView.vue')
+    },
+    {
+      path: '/tasks/compare',
+      name: 'TaskCompare',
+      component: () => import('../views/TaskCompareView.vue'), // 下面会创建这个文件
+      meta: { title: '评测对比' }
     },
     { 
       path: '/schemes', 

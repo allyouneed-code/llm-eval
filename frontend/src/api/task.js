@@ -22,3 +22,7 @@ export function getTask(id) {
 export function deleteTask(id) {
   return request.delete(URL + `/${id}`)
 }
+
+export function compareTasks(data) {
+  return request.post(URL + '/compare', data)
+}
