@@ -24,6 +24,8 @@ class DatasetMeta(SQLModel, table=True):
     
     # 🆕 新增：软删除标记
     is_deleted: bool = Field(default=False)
+
+    modality: str = Field(default="Text") #数据模态 (Text, Image, Audio, Video)
     
     # 关系定义保持原样，不需要加 cascade="all, delete-orphan" 了
     configs: List["DatasetConfig"] = Relationship(back_populates="meta")

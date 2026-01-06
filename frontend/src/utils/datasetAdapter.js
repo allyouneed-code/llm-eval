@@ -1,6 +1,6 @@
 /**
  * src/utils/datasetAdapter.js
- * 修复版：保留了旧的常量导出以防止 Import Error，同时内置了自动后处理逻辑
+ * 修复版：增加了对多模态数据集的自动映射支持
  */
 
 // ==========================================
@@ -47,7 +47,7 @@ export const TASK_METRICS = {
   ]
 }
 
-// ⬇️ 兼容性修复：保留这些导出，防止 Vue 组件报错
+// ⬇️ 兼容性导出
 export const CHOICE_POST_PROCESSORS = [
   { label: '提取首选项 (A/B/C/D)', value: 'first_option' }
 ]
@@ -65,11 +65,7 @@ const METRIC_EVALUATOR_MAP = {
   'EM': 'EMEvaluator'
 }
 
-/**
- * 根据指标和任务类型，获取最佳后处理配置
- */
 function getAutoPostProcessCfg(metric, taskType) {
-  // 场景 A: 选择题 (Choice) -> 自动应用 first_option_postprocess
   if (taskType === TASK_TYPES.CHOICE.value) {
     if (metric === 'Accuracy' || metric === 'F1') {
       return { 
@@ -78,16 +74,11 @@ function getAutoPostProcessCfg(metric, taskType) {
       }
     }
   }
-
-  // 场景 B: 问答题 (QA) -> 默认 null (Raw Match)
-  // ROUGE/BLEU 在通用场景下不需要特定后处理
   return null
 }
 
 function generatePromptTemplate(taskType, mapping) {
   if (taskType === TASK_TYPES.CHOICE.value) {
-    // 确保这里的 mapping key 对应的是实际的 CSV 列名
-    // 注意：模板里用 {MappingKey}，而不是 {SlotKey}
     let template = `Question: {${mapping.question}}\n`
     if (mapping.optA) template += `A. {${mapping.optA}}\n`
     if (mapping.optB) template += `B. {${mapping.optB}}\n`
@@ -107,22 +98,41 @@ function generatePromptTemplate(taskType, mapping) {
 // ==========================================
 
 export function generateConfigPayload(importState) {
-  const { meta, taskType, columnMapping, metrics } = importState
+  // 🌟 1. 解构 importState，注意这里增加了 modality
+  const { meta, taskType, columnMapping, metrics, modality } = importState
   
-  // 1. Reader Config
-  const inputColumns = Object.values(columnMapping).filter(v => v)
+  // 🌟 2. 构造 finalMapping (核心修复点)
+  // 如果是多模态模式(非Text)且映射为空(因为跳过了Mapping步骤)，则自动填充默认值
+  let finalMapping = { ...columnMapping }
+  
+  if (modality && modality !== 'Text' && Object.keys(finalMapping).length === 0) {
+      if (taskType === TASK_TYPES.QA.value) {
+          // 多模态 QA 默认映射
+          finalMapping = {
+              prompt: 'question', // 标准字段 question -> 映射到 Input 插槽
+              target: 'answer'    // 标准字段 answer   -> 映射到 Target 插槽
+          }
+          // 根据模态追加资源字段，确保它们被加入 input_columns
+          if (modality === 'Image') finalMapping.image = 'image'
+          if (modality === 'Video') finalMapping.video = 'video'
+          if (modality === 'Audio') finalMapping.audio = 'audio'
+      }
+      // 如果将来支持 Choice，可在此处扩展
+  }
+
+  // 🌟 3. Reader Config (使用 finalMapping)
+  const inputColumns = Object.values(finalMapping).filter(v => v)
   const outputColumnKey = taskType === TASK_TYPES.CHOICE.value ? 'answer' : 'target'
-  const outputColumn = columnMapping[outputColumnKey]
+  const outputColumn = finalMapping[outputColumnKey]
 
   const readerCfg = {
     input_columns: inputColumns,
     output_column: outputColumn,
-    // 🌟 核心修复：必须包含 mapping 字段，否则后端 Schema 校验会失败 (400 Bad Request)
-    mapping: columnMapping 
+    mapping: finalMapping 
   }
 
-  // 2. Infer Config
-  const promptTemplateStr = generatePromptTemplate(taskType, columnMapping)
+  // 🌟 4. Infer Config (使用 finalMapping 生成 Prompt)
+  const promptTemplateStr = generatePromptTemplate(taskType, finalMapping)
   const inferCfg = {
     prompt_template: {
       type: 'PromptTemplate',
@@ -132,13 +142,10 @@ export function generateConfigPayload(importState) {
     inferencer: { type: 'GenInferencer' }
   }
 
-  // 3. Generate Configs List
+  // 5. Generate Configs List
   const configs = metrics.map((metricName) => {
-    // A. 确定 Evaluator
     const evaluatorType = METRIC_EVALUATOR_MAP[metricName] || 'AccEvaluator'
     const evaluatorConfig = { type: evaluatorType }
-
-    // B. 自动确定 PostProcess (忽略前端传来的 postProcess 字段)
     const postProcessCfg = getAutoPostProcessCfg(metricName, taskType) || {}
     
     return {

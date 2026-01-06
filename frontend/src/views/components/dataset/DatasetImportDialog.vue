@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, defineAsyncComponent } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createDataset } from '@/api/dataset'
-import { generateConfigPayload } from '@/utils/datasetAdapter' // 引入上一阶段写的 Adapter
+import { generateConfigPayload } from '@/utils/datasetAdapter'
 
 const props = defineProps({
   visible: { type: Boolean, default: false }
@@ -10,7 +10,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'success'])
 
-// 异步加载步骤组件 (避免一次性加载所有代码)
+// 异步加载步骤组件
 const StepUpload = defineAsyncComponent(() => import('./wizard/ImportStepUpload.vue'))
 const StepMapping = defineAsyncComponent(() => import('./wizard/ImportStepMapping.vue'))
 const StepConfig = defineAsyncComponent(() => import('./wizard/ImportStepConfig.vue'))
@@ -20,64 +20,94 @@ const StepConfig = defineAsyncComponent(() => import('./wizard/ImportStepConfig.
 // ==========================================
 const activeStep = ref(0)
 const submitting = ref(false)
-const stepRef = ref(null) // 用于调用子组件的 validate 方法
+const stepRef = ref(null)
+const uploadMode = ref('text') // 🌟 新增：'text' | 'multimodal'
 
-// 核心状态对象：在所有步骤中共享
+// 核心状态对象
 const importState = reactive({
-  // Step 1 Data
-  meta: {
-    name: '',
-    category: '',
-    description: ''
-  },
-  file: null,          // 原始 File 对象
-  fileHeaders: [],     // 解析出的 CSV/JSONL 表头 ['col1', 'col2']
-  previewRows: [],     // 预览用的前5行数据
+  // Meta
+  meta: { name: '', category: '', description: '' },
+  modality: 'Text', // 🌟 新增
   
-  // Step 2 Data
-  taskType: '',        // 'choice' | 'qa'
-  columnMapping: {},   // { question: 'q_col', answer: 'ans_col' ... }
+  // File
+  file: null,
+  fileHeaders: [],
+  previewRows: [],
   
-  // Step 3 Data
-  metrics: [],         // ['Accuracy', 'ROUGE'...]
-  postProcess: ''      // 'first_option' | 'jieba' ...
+  // Logic
+  taskType: '',
+  columnMapping: {},
+  
+  // Config
+  metrics: [],
+  postProcess: ''
 })
 
 // ==========================================
 // 2. 流程控制 (Flow)
 // ==========================================
-const steps = [
-  { component: StepUpload, title: '上传文件' },
-  { component: StepMapping, title: '字段映射' },
-  { component: StepConfig, title: '评测配置' }
-]
 
-const currentComponent = computed(() => steps[activeStep.value].component)
-const isLastStep = computed(() => activeStep.value === steps.length - 1)
+// 🌟 动态计算步骤：多模态模式跳过“字段映射”
+const steps = computed(() => {
+  const list = [
+    { component: StepUpload, title: '上传文件' }
+  ]
+  
+  // 仅文本模式需要映射
+  if (uploadMode.value === 'text') {
+    list.push({ component: StepMapping, title: '字段映射' })
+  }
+  
+  list.push({ component: StepConfig, title: '评测配置' })
+  return list
+})
 
-// 重置状态
+const currentComponent = computed(() => steps.value[activeStep.value].component)
+const isLastStep = computed(() => activeStep.value === steps.value.length - 1)
+
+// 监听弹窗打开，重置状态
 watch(() => props.visible, (val) => {
   if (val) {
     activeStep.value = 0
-    importState.meta = { name: '', category: '', description: '' }
-    importState.file = null
-    importState.fileHeaders = []
-    importState.previewRows = []
-    importState.taskType = ''
-    importState.columnMapping = {}
-    importState.metrics = []
-    importState.postProcess = ''
+    uploadMode.value = 'text' // 默认重置为文本
+    resetState()
   }
 })
 
+// 监听模式切换
+watch(uploadMode, (val) => {
+  activeStep.value = 0
+  resetState()
+  
+  if (val === 'text') {
+    importState.modality = 'Text'
+    importState.taskType = '' // 文本模式由 Mapping 步骤决定任务类型
+  } else {
+    // 多模态默认初始化
+    importState.modality = 'Image' 
+    importState.taskType = 'qa' // 多模态默认走 QA/Gen 逻辑，以便加载指标
+  }
+})
+
+function resetState() {
+  importState.meta = { name: '', category: '', description: '' }
+  importState.file = null
+  importState.fileHeaders = []
+  importState.previewRows = []
+  importState.columnMapping = {}
+  importState.metrics = []
+  importState.postProcess = ''
+  // taskType 和 modality 由 watch uploadMode 单独处理
+}
+
 const handleNext = async () => {
-  // 调用子组件的校验方法 (如果存在)
+  // 子组件校验
   if (stepRef.value && stepRef.value.validate) {
     const valid = await stepRef.value.validate()
     if (!valid) return
   }
   
-  if (activeStep.value < steps.length - 1) {
+  if (activeStep.value < steps.value.length - 1) {
     activeStep.value++
   } else {
     handleFinalSubmit()
@@ -94,18 +124,19 @@ const handlePrev = () => {
 const handleFinalSubmit = async () => {
   submitting.value = true
   try {
-    // 1. 使用 Adapter 生成 Configs JSON
+    // 1. 生成配置 JSON
     const configs = generateConfigPayload(importState)
     
     // 2. 构建 FormData
     const formData = new FormData()
     formData.append('name', importState.meta.name)
     formData.append('category', importState.meta.category)
+    formData.append('modality', importState.modality) // 🌟 传给后端
     formData.append('description', importState.meta.description || '')
     formData.append('file', importState.file)
     formData.append('configs_json', JSON.stringify(configs))
     
-    // 3. 发送请求
+    // 3. 发送
     await createDataset(formData)
     
     ElMessage.success('导入成功')
@@ -124,12 +155,19 @@ const handleFinalSubmit = async () => {
   <el-dialog 
     :model-value="visible" 
     @update:model-value="(val) => emit('update:visible', val)"
-    title="导入数据集 (向导模式)" 
+    title="导入数据集" 
     width="800px" 
     :close-on-click-modal="false"
     destroy-on-close
     top="5vh"
   >
+    <div class="mode-switch-container">
+      <el-radio-group v-model="uploadMode">
+        <el-radio-button label="text">文本数据集 (Text)</el-radio-button>
+        <el-radio-button label="multimodal">多模态数据集 (Image/Video)</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <div class="step-header">
       <el-steps :active="activeStep" finish-status="success" align-center>
         <el-step v-for="step in steps" :key="step.title" :title="step.title" />
@@ -141,6 +179,7 @@ const handleFinalSubmit = async () => {
         <component 
           :is="currentComponent" 
           :state="importState"
+          :upload-mode="uploadMode"
           ref="stepRef"
         />
       </keep-alive>
@@ -159,6 +198,7 @@ const handleFinalSubmit = async () => {
 </template>
 
 <style scoped>
+.mode-switch-container { display: flex; justify-content: center; margin-bottom: 20px; }
 .step-header { margin-bottom: 25px; padding: 0 20px; }
 .step-content { 
   min-height: 350px; 

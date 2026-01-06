@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel
+from fastapi.staticfiles import StaticFiles #
+import os
 
 from app.core.database import engine
 
@@ -44,6 +46,9 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "database": "connected"}
+
+os.makedirs("data/datasets", exist_ok=True)
+app.mount("/static", StaticFiles(directory="data/datasets"), name="static")
 
 app.include_router(models.router, prefix="/api/v1/models", tags=["Models"])
 app.include_router(datasets.router, prefix="/api/v1/datasets", tags=["Datasets"])

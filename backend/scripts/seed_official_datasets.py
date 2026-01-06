@@ -35,6 +35,7 @@ if os.path.exists(CAPABILITY_MAP_FILE):
 
 # 4. Evaluator 映射表 (保持不变)
 EVALUATOR_MAPPING = {
+    # ... (原有映射保持不变，为了节省篇幅这里省略，请保留原文件的这部分)
     "AccEvaluator": "Accuracy",
     "AccwithDetailsEvaluator": "Accuracy",
     "Accuracy": "Accuracy",
@@ -131,7 +132,7 @@ def infer_mode_strict(filename):
     return None
 
 # ==========================================
-# 📂 智能分类推断 (V8 严格版) (原有逻辑)
+# 📂 智能分类推断 (V8 严格版)
 # ==========================================
 def infer_category_heuristics(name):
     """关键词兜底逻辑 (增强版)"""
@@ -150,17 +151,14 @@ def infer_category_heuristics(name):
     if any(x in n for x in ['safety', 'toxic', 'bias', 'jailbreak']): return "Safety"
     # Reasoning
     if any(x in n for x in ['reason', 'logic', 'nli', 'qa', 'reading', 'arc', 'hellaswag']): return "Reasoning"
-    # Long Context (🌟 新增，解决 lveval 问题)
+    # Long Context
     if any(x in n for x in ['long', 'context', 'needle', 'lveval', 'lv-eval', 'book']): return "Long Context"
-    # Vision / Multimodal (以防万一)
+    # Multimodal (作为分类)
     if any(x in n for x in ['vision', 'image', 'video', 'mmbench']): return "Multimodal"
     
     return None
 
 def resolve_meta_and_category(file_path, oc_root):
-    """
-    V8 策略：非白名单即 Other
-    """
     abs_datasets_dir = os.path.join(oc_root, "configs", "datasets")
     if not file_path.startswith(abs_datasets_dir):
         return os.path.basename(os.path.dirname(file_path)), "Other"
@@ -168,24 +166,21 @@ def resolve_meta_and_category(file_path, oc_root):
     rel_path = os.path.relpath(file_path, abs_datasets_dir)
     parts = rel_path.replace("\\", "/").split("/")
     
-    # 1. 确定 Meta Name (依然是父文件夹名，这在 adv_glue_mnli 里是对的)
     meta_name = parts[-2] if len(parts) >= 2 else parts[0]
+    category = "Other"
     
-    # 2. 确定 Category
-    category = "Other" # 默认值
-    
-    # 策略 A: 查官方映射表 (精确匹配 Meta Name)
+    # 策略 A: 查官方映射表
     if meta_name.lower() in CAPABILITY_MAP:
         category = CAPABILITY_MAP[meta_name.lower()]
     
-    # 策略 B: 查官方映射表 (模糊匹配)
+    # 策略 B: 模糊匹配
     if category == "Other":
         for k, v in CAPABILITY_MAP.items():
             if k in meta_name.lower():
                 category = v
                 break
     
-    # 策略 C: 关键词兜底 (Heuristics)
+    # 策略 C: 关键词
     if category == "Other":
         h_cat = infer_category_heuristics(meta_name)
         if h_cat:
@@ -194,85 +189,80 @@ def resolve_meta_and_category(file_path, oc_root):
     return meta_name, category
 
 # ==========================================
-# 🆕 新增：AST 辅助函数，用于提取后处理配置
+# 🌟 🆕 新增：模态推断逻辑
+# ==========================================
+def infer_modality(meta_name):
+    """
+    根据数据集名称推断模态 (Text / Image / Video / Audio)
+    默认 Text
+    """
+    n = meta_name.lower()
+    
+    # Video
+    if any(x in n for x in ['video', 'activitynet', 'msrvtt']):
+        return "Video"
+        
+    # Audio
+    if any(x in n for x in ['audio', 'speech', 'aishell']):
+        return "Audio"
+        
+    # Image
+    if any(x in n for x in ['image', 'vision', 'visual', 'mmbench', 'coco', 'flickr', 'vqav2', 'ocr', 'caption']):
+        return "Image"
+        
+    return "Text"
+
+# ==========================================
+# AST 辅助函数 (保持不变)
 # ==========================================
 def ast_to_dict(node):
-    """将 AST dict 节点转换为 Python dict"""
     if isinstance(node, ast.Dict):
         return {ast_to_dict(k): ast_to_dict(v) for k, v in zip(node.keys, node.values)}
     elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'dict':
         return {k.arg: ast_to_dict(k.value) for k in node.keywords}
-    elif isinstance(node, ast.Constant): # Python 3.8+
+    elif isinstance(node, ast.Constant): 
         return node.value
-    elif isinstance(node, ast.Str): # Python < 3.8
+    elif isinstance(node, ast.Str):
         return node.s
-    elif isinstance(node, ast.Num): # Python < 3.8
+    elif isinstance(node, ast.Num):
         return node.n
-    elif isinstance(node, ast.Name): # 引用了变量，这里简化处理返回变量名字符串
+    elif isinstance(node, ast.Name):
         return node.id 
     return None
 
 def parse_ast_for_extra_fields(file_path):
-    """
-    使用 AST 提取 task_type 和 post_process_cfg
-    """
     evaluator_type = ""
     post_process_cfg = {}
     
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             tree = ast.parse(f.read())
-        
-        # 寻找 eval_cfg 赋值语句
         for node in tree.body:
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == 'eval_cfg':
-                        # 找到了 eval_cfg = ...
                         value_node = node.value
-                        
-                        # 解析 evaluator
-                        # 假设结构是 dict(evaluator=dict(type=...), pred_postprocessor=dict(...))
                         if isinstance(value_node, ast.Call) and value_node.keywords:
                             for kw in value_node.keywords:
-                                # 提取 evaluator.type
                                 if kw.arg == 'evaluator':
                                     ev_dict = ast_to_dict(kw.value)
                                     if ev_dict and 'type' in ev_dict:
                                         evaluator_type = str(ev_dict['type'])
-                                
-                                # 提取 pred_postprocessor
                                 if kw.arg == 'pred_postprocessor':
                                     pp_dict = ast_to_dict(kw.value)
                                     if pp_dict:
                                         post_process_cfg = pp_dict
                         break
     except Exception as e:
-        # AST 解析失败不应阻塞主流程，仅静默失败
         pass
-        
     return evaluator_type, post_process_cfg
 
 def infer_task_type(evaluator_type, post_process_cfg):
-    """
-    根据提取到的信息推断任务类型
-    """
     pp_type = str(post_process_cfg.get('type', '')).lower()
     ev_type = evaluator_type.lower()
-    
-    # 1. 如果有明确的提取选项后处理 -> 选择题
-    if 'option' in pp_type or 'capital' in pp_type:
-        return 'multiple_choice'
-    
-    # 2. 如果 Evaluator 是 Accuracy 类型 -> 倾向于选择题 (虽然数学题也是 Acc)
-    if 'acc' in ev_type:
-        return 'multiple_choice' 
-        
-    # 3. 填空题
-    if 'em' in ev_type or 'exact' in ev_type:
-        return 'cloze'
-        
-    # 4. 默认问答/生成
+    if 'option' in pp_type or 'capital' in pp_type: return 'multiple_choice'
+    if 'acc' in ev_type: return 'multiple_choice' 
+    if 'em' in ev_type or 'exact' in ev_type: return 'cloze'
     return 'qa'
 
 # ==========================================
@@ -288,8 +278,8 @@ def process_and_save(session: Session, oc_root: str):
             print(f"❌ 错误：找不到 configs/datasets 路径 -> {target_dir}")
             return
 
-    print(f"🚀 [V8-纯净分类版] 开始扫描: {target_dir}")
-    print(f"   ℹ️  策略: 映射表 > 关键词 > Other (拒绝使用文件夹名作为分类)")
+    print(f"🚀 [V9-多模态适配版] 开始扫描: {target_dir}")
+    print(f"   ℹ️  策略: 映射表 > 关键词 > Modality Inference")
     
     py_files = glob.glob(os.path.join(target_dir, "**/*.py"), recursive=True)
     print(f"📄 物理文件总数: {len(py_files)}")
@@ -308,35 +298,51 @@ def process_and_save(session: Session, oc_root: str):
             continue
 
         try:
-            # 1. Strict Mode (原有逻辑)
+            # 1. Strict Mode
             mode = infer_mode_strict(filename)
             if not mode:
                 skipped_count += 1
                 continue
 
-            # 2. Resolve Meta & Category (V8 Logic) (原有逻辑)
+            # 2. Resolve Meta & Category
             meta_name, category = resolve_meta_and_category(file_path, oc_root)
             
-            # 3. Metric (原有逻辑)
+            # 🌟 3. Infer Modality (新增)
+            modality = infer_modality(meta_name)
+            
+            # 4. Metric
             metric = extract_metric_from_file(file_path)
             if not metric:
                 metric = infer_metric_by_filename(filename)
             
-            # 4. 🆕 Extract Extra Fields (新增逻辑)
-            # 使用 AST 提取后处理配置和评估器类型，用于推断 task_type
+            # 5. Extract Extra Fields
             ast_eval_type, ast_pp_cfg = parse_ast_for_extra_fields(file_path)
             task_type = infer_task_type(ast_eval_type, ast_pp_cfg)
             
-            # 5. DB Operations
+            # 6. DB Operations
             # Meta
             meta = session.exec(select(DatasetMeta).where(DatasetMeta.name == meta_name)).first()
             if not meta:
-                meta = DatasetMeta(name=meta_name, category=category, description="Official Dataset")
+                meta = DatasetMeta(
+                    name=meta_name, 
+                    category=category, 
+                    modality=modality,  # 🌟 写入 Modality
+                    description="Official Dataset"
+                )
                 session.add(meta)
                 session.flush()
             else:
-                if meta.category != category:
-                     meta.category = category
+                needs_meta_update = False
+                if meta.category != category: 
+                    meta.category = category
+                    needs_meta_update = True
+                
+                # 🌟 更新 Modality
+                if meta.modality != modality:
+                    meta.modality = modality
+                    needs_meta_update = True
+                    
+                if needs_meta_update:
                      session.add(meta)
                      session.flush()
 
@@ -351,12 +357,10 @@ def process_and_save(session: Session, oc_root: str):
             existing = session.exec(select(DatasetConfig).where(DatasetConfig.config_name == config_name, DatasetConfig.meta_id == meta.id)).first()
             
             if existing:
-                # 更新逻辑增加 task_type 和 post_process_cfg
                 needs_update = False
                 if existing.display_metric != metric: existing.display_metric = metric; needs_update = True
                 if existing.mode != mode: existing.mode = mode; needs_update = True
                 if existing.file_path != official_path: existing.file_path = official_path; needs_update = True
-                # 🆕 增加对新字段的更新
                 if existing.task_type != task_type: existing.task_type = task_type; needs_update = True
                 new_pp_json = json.dumps(ast_pp_cfg, ensure_ascii=False)
                 if existing.post_process_cfg != new_pp_json: existing.post_process_cfg = new_pp_json; needs_update = True
@@ -372,11 +376,8 @@ def process_and_save(session: Session, oc_root: str):
                 mode=mode,
                 file_path=official_path,
                 display_metric=metric,
-                
-                # 🆕 填入新字段
                 task_type=task_type,
                 post_process_cfg=json.dumps(ast_pp_cfg, ensure_ascii=False),
-                
                 reader_cfg="{}", infer_cfg="{}", metric_config="{}"
             )
             session.add(db_config)
@@ -387,13 +388,13 @@ def process_and_save(session: Session, oc_root: str):
             session.rollback()
             continue
 
-    print(f"\n🎉 V8 录入完成！")
+    print(f"\n🎉 V9 录入完成！")
     print(f"   ✅ 成功录入: {success_count}")
     print(f"   🧹 过滤噪音: {skipped_count}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法: python scripts/seed_via_ast_v8.py <path>")
+        print("用法: python scripts/seed_via_ast_v9.py <path>")
         sys.exit(1)
     
     from sqlmodel import SQLModel

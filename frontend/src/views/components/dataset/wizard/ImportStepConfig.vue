@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { DataAnalysis, List } from '@element-plus/icons-vue' 
 import { TASK_METRICS } from '@/utils/datasetAdapter'
 
-const props = defineProps(['state'])
+const props = defineProps(['state', 'uploadMode'])
 
 // ==========================================
 // 1. 动态获取配置选项
@@ -29,7 +29,7 @@ onMounted(() => {
 })
 
 // ==========================================
-// 3. 生成预览清单 (完全纯净版)
+// 3. 生成预览清单
 // ==========================================
 
 const configPreviewList = computed(() => {
@@ -39,7 +39,6 @@ const configPreviewList = computed(() => {
     return {
       name: `${baseName}_${metric}`,
       metric: metric,
-      // 仅获取指标名称，不再计算 process 描述
       label: availableMetrics.value.find(m => m.value === metric)?.label
     }
   })
@@ -87,7 +86,7 @@ defineExpose({ validate })
             </el-checkbox-group>
             
             <div class="empty-tip" v-if="availableMetrics.length === 0">
-              请先在“上一步”选择正确的任务类型
+              请先在“上一步”选择正确的任务类型 (或多模态默认类型)
             </div>
           </div>
         </div>
@@ -104,6 +103,12 @@ defineExpose({ validate })
               <span class="label">数据集名称:</span>
               <span class="value">{{ state.meta.name }}</span>
             </div>
+
+            <div class="summary-row" v-if="uploadMode === 'multimodal'">
+              <span class="label">数据模态:</span>
+              <span class="value">{{ state.modality }}</span>
+            </div>
+
             <div class="summary-row">
               <span class="label">任务类型:</span>
               <span class="value">{{ state.taskType === 'choice' ? '客观选择题' : '开放式问答' }}</span>

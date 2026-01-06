@@ -1,6 +1,7 @@
 import os
 import shutil
 import json
+import zipfile
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -73,6 +74,55 @@ def _flatten_row(row: Dict[str, Any], parent_key: str = '', sep: str = '_') -> D
             items[new_key] = v
             
     return items
+
+def _handle_zip_upload(upload_file: UploadFile, dataset_name: str) -> str:
+    """
+    处理 ZIP 上传：
+    1. 保存 ZIP
+    2. 解压到 data/datasets/{name}/
+    3. 寻找 .jsonl 或 .json 作为主索引文件
+    4. 返回主索引文件的绝对路径
+    """
+    # 定义目录
+    base_dir = os.path.join(UPLOAD_DIR, dataset_name)
+    os.makedirs(base_dir, exist_ok=True)
+    
+    zip_path = os.path.join(base_dir, "upload.zip")
+    
+    # 1. 保存 ZIP 文件
+    upload_file.file.seek(0)
+    with open(zip_path, "wb") as buffer:
+        shutil.copyfileobj(upload_file.file, buffer)
+        
+    # 2. 解压
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(base_dir)
+    except zipfile.BadZipFile:
+        shutil.rmtree(base_dir) # 清理
+        raise HTTPException(status_code=400, detail="无效的 ZIP 文件")
+        
+    # 3. 寻找索引文件 (优先找 .jsonl，其次 .json)
+    # 遍历解压后的目录（只找顶层）
+    found_file = None
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            if file.lower().endswith(".jsonl"):
+                found_file = os.path.join(root, file)
+                break
+        if found_file: break
+        
+        # 如果没找到 jsonl，尝试找 json
+        for file in files:
+             if file.lower().endswith(".json"):
+                found_file = os.path.join(root, file)
+                break
+        if found_file: break
+
+    if not found_file:
+        raise HTTPException(status_code=400, detail="ZIP 包中未找到 .jsonl 或 .json 索引文件")
+        
+    return found_file
 
 def _process_and_save_file(upload_file: UploadFile, save_path: str):
     """
@@ -260,6 +310,7 @@ def get_dataset_stats(session: Session = Depends(get_session)):
 def create_dataset(
     name: str = Form(...),
     category: str = Form(...),
+    modality: str = Form("Text"),  # 🆕 接收模态参数
     description: Optional[str] = Form(None),
     configs_json: str = Form(...), 
     file: UploadFile = File(...),
@@ -270,7 +321,8 @@ def create_dataset(
     meta = session.exec(statement).first()
     
     if not meta:
-        meta = DatasetMeta(name=name, category=category, description=description)
+        # 🆕 存入 modality
+        meta = DatasetMeta(name=name, category=category, modality=modality, description=description)
         session.add(meta)
         session.commit()
         session.refresh(meta)
@@ -278,30 +330,77 @@ def create_dataset(
         if meta.is_deleted:
             meta.is_deleted = False
             meta.category = category
+            meta.modality = modality # 🆕 更新 modality
             if description: meta.description = description
             session.add(meta)
             session.commit()
             session.refresh(meta)
+        else:
+            # 如果已存在且未删除，防止重名覆盖（或者你可以允许覆盖，看业务需求）
+            # 这里简单处理：允许更新元数据
+            meta.category = category
+            meta.modality = modality
+            session.add(meta)
+            session.commit()
     
-    # 2. 保存并处理文件 (ETL)
+    # 2. 保存并处理文件
     file_ext = os.path.splitext(file.filename)[1].lower()
-    # 强制统一使用 jsonl 作为存储格式 (如果原文件是 JSON/JSONL)
-    if file_ext in ['.json', '.jsonl']:
-        save_name = f"{name}_base.jsonl"
-    else:
-        save_name = f"{name}_base{file_ext}"
-        
-    save_path = os.path.join(UPLOAD_DIR, save_name)
-    abs_path = os.path.abspath(save_path)
     
-    # 🌟 调用处理函数：保存并扁平化
-    _process_and_save_file(file, save_path)
+    final_file_path = ""
+    
+    if file_ext == ".zip":
+        # 🆕 ZIP 处理逻辑
+        # 解压后返回其中的 jsonl 路径
+        raw_index_path = _handle_zip_upload(file, name)
         
-    # 3. 解析并批量处理配置
+        # 针对解压出的 jsonl，我们仍然建议做一次“扁平化”处理，以保证数据格式统一
+        # 我们将其保存为 {name}_processed.jsonl
+        save_name = f"{name}_processed.jsonl"
+        final_file_path = os.path.join(os.path.dirname(raw_index_path), save_name)
+        
+        # 模拟一个 UploadFile 对象传给 _process_and_save_file (复用逻辑)
+        # 或者我们直接读取 raw_index_path 进行处理
+        with open(raw_index_path, 'rb') as f:
+            # 临时构造对象复用现有 ETL 逻辑
+            # 注意：这里我们假设 _process_and_save_file 内部逻辑足够健壮
+            # 这里为了简单，我们手动做一下 ETL
+            try:
+                content = f.read()
+                rows = []
+                # 尝试解析
+                if raw_index_path.endswith(".jsonl"):
+                    lines = content.decode('utf-8').splitlines()
+                    for line in lines:
+                        if line.strip(): rows.append(json.loads(line))
+                else:
+                    data = json.loads(content)
+                    rows = data if isinstance(data, list) else [data]
+                
+                # 扁平化
+                flattened_rows = [_flatten_row(row) for row in rows]
+                df = pd.DataFrame(flattened_rows)
+                df.to_json(final_file_path, orient='records', lines=True, force_ascii=False)
+                
+            except Exception as e:
+                print(f"ETL failed for zip content: {e}, using raw file")
+                final_file_path = raw_index_path # 回退使用原文件
+
+    else:
+        # 旧逻辑：单文件上传
+        if file_ext in ['.json', '.jsonl']:
+            save_name = f"{name}_base.jsonl"
+        else:
+            save_name = f"{name}_base{file_ext}"
+            
+        save_path = os.path.join(UPLOAD_DIR, save_name)
+        _process_and_save_file(file, save_path)
+        final_file_path = os.path.abspath(save_path)
+    
+    abs_path = os.path.abspath(final_file_path)
+
+    # 3. 解析配置 (保持不变，只是传入新的 file_path)
     try:
         configs_list = json.loads(configs_json)
-        if not isinstance(configs_list, list):
-            raise ValueError("configs_json must be a list")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"配置格式错误: {str(e)}")
 
@@ -311,20 +410,21 @@ def create_dataset(
     for cfg_data in configs_list:
         try:
             cfg_data["meta_id"] = meta.id
-            cfg_data["file_path"] = abs_path
+            cfg_data["file_path"] = abs_path # 🌟 关键：指向解压后的 jsonl
             
+            # ... (后续配置创建逻辑保持不变) ...
             if not cfg_data.get("config_name"):
                 mode_suffix = cfg_data.get("mode", "gen")
                 cfg_data["config_name"] = f"{name}_{mode_suffix}"
-                
+            
             if not cfg_data.get("display_metric"):
                 cfg_data["display_metric"] = _extract_metric_name(cfg_data.get("metric_config", "{}"))
 
             validated_config = DatasetConfigCreate(**cfg_data)
             
             existing = next((c for c in meta.configs if c.config_name == validated_config.config_name), None)
-            
             if existing:
+                # Update logic...
                 existing.mode = validated_config.mode
                 existing.file_path = validated_config.file_path
                 existing.reader_cfg = validated_config.reader_cfg

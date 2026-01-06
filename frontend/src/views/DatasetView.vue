@@ -35,6 +35,16 @@ const currentDataset = ref(null)
 // 交互逻辑
 // ==========================================
 
+const getModalityTagType = (modality) => {
+  const map = {
+    'Text': 'info',
+    'Image': 'success',
+    'Video': 'warning',
+    'Audio': 'danger'
+  }
+  return map[modality] || 'info'
+}
+
 const handleSearch = () => {
   filter.value.page = 1
   // keyword 变化触发 watch 自动加载
@@ -114,7 +124,7 @@ const handleDownload = (row) => {
         <div class="table-wrapper">
           <el-table :data="tableData" v-loading="loading" border stripe height="100%" style="width: 100%">
              <el-table-column prop="id" label="ID" width="60" align="center" sortable />
-  
+
               <el-table-column label="名称" min-width="180" show-overflow-tooltip>
                 <template #default="scope">
                   <span class="dataset-name" @click="handleShowDetail(scope.row)">
@@ -166,14 +176,33 @@ const handleDownload = (row) => {
                   <el-tag effect="light" type="success" round>{{ scope.row.category }}</el-tag>
                 </template>
               </el-table-column>
+
+              <el-table-column label="模态" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tag 
+                    :type="getModalityTagType(row.modality)" 
+                    effect="light"
+                    size="small"
+                    round
+                  >
+                    {{ row.modality || 'Text' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               
-              <el-table-column label="操作" width="160" align="center" fixed="right">
+              <el-table-column label="操作" width="200" align="center" fixed="right">
                 <template #default="scope">
                   <el-button-group>
                     <el-button size="small" :icon="Document" @click="handleShowDetail(scope.row)" title="详情" />
                     
                     <template v-if="!scope.row.is_system">
-                      <el-button size="small" :icon="View" @click="handleViewData(scope.row)" title="预览数据" />
+                      <el-button 
+                        v-if="!scope.row.modality || scope.row.modality === 'Text'"
+                        size="small" 
+                        :icon="View" 
+                        @click="handleViewData(scope.row)" 
+                        title="预览数据" 
+                      />
                       <el-button size="small" :icon="Download" @click="handleDownload(scope.row)" title="下载" />
                       <el-button size="small" type="danger" :icon="Delete" @click="handleDelete(scope.row)" title="删除" />
                     </template>
@@ -222,6 +251,13 @@ const handleDownload = (row) => {
            <h3>{{ currentDataset.name }}</h3>
            <el-tag>{{ currentDataset.category }}</el-tag>
         </div>
+        
+        <div style="margin-bottom: 10px;">
+           <el-tag :type="getModalityTagType(currentDataset.modality)" size="small" effect="plain">
+              {{ currentDataset.modality || 'Text' }} Modality
+           </el-tag>
+        </div>
+
         <p class="desc">{{ currentDataset.description || '暂无描述' }}</p>
 
         <el-divider content-position="left">配置列表 (Configs)</el-divider>
@@ -241,14 +277,6 @@ const handleDownload = (row) => {
                 <div class="kv-row">
                   <span class="k">Evaluator:</span>
                   <span class="v code">{{ parseConfigInfo(cfg).evaluator }}</span>
-                </div>
-                <div class="kv-row" v-if="cfg.reader_cfg">
-                  <span class="k">Input Cols:</span>
-                  <span class="v code">{{ JSON.parse(cfg.reader_cfg).input_columns?.join(', ') }}</span>
-                </div>
-                 <div class="kv-row" v-if="cfg.reader_cfg">
-                  <span class="k">Output Col:</span>
-                  <span class="v code">{{ JSON.parse(cfg.reader_cfg).output_column }}</span>
                 </div>
              </div>
           </div>
