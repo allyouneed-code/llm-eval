@@ -1,6 +1,6 @@
 /**
  * src/utils/datasetAdapter.js
- * 修复版：增加了对多模态数据集的自动映射支持
+ * 修复版：增加了对多模态数据集的自动映射支持 (Choice & QA) 及默认任务推断
  */
 
 // ==========================================
@@ -18,6 +18,15 @@ export const TASK_TYPES = {
     value: 'qa',
     desc: '适用于翻译、摘要、简答等生成式任务'
   }
+}
+
+// 🌟 新增：模态到默认任务类型的映射
+// 用于前端 ImportStepConfig.vue 在检测到多模态时自动填充 taskType
+export const MODALITY_DEFAULT_TASK = {
+  'Image': TASK_TYPES.QA.value, // VQA 默认走 QA 流程
+  'Video': TASK_TYPES.QA.value,
+  'Audio': TASK_TYPES.QA.value,
+  'Text': TASK_TYPES.CHOICE.value // 文本默认保持 Choice (或根据业务调整)
 }
 
 export const TASK_SLOTS = {
@@ -94,7 +103,7 @@ function generatePromptTemplate(taskType, mapping) {
 }
 
 // ==========================================
-// 3. 工厂方法
+// 3. 工厂方法 (Config Generation)
 // ==========================================
 
 export function generateConfigPayload(importState) {
@@ -106,24 +115,45 @@ export function generateConfigPayload(importState) {
   let finalMapping = { ...columnMapping }
   
   if (modality && modality !== 'Text' && Object.keys(finalMapping).length === 0) {
+      // 场景 A: 多模态 QA (VQA)
       if (taskType === TASK_TYPES.QA.value) {
-          // 多模态 QA 默认映射
           finalMapping = {
               prompt: 'question', // 标准字段 question -> 映射到 Input 插槽
               target: 'answer'    // 标准字段 answer   -> 映射到 Target 插槽
           }
-          // 根据模态追加资源字段，确保它们被加入 input_columns
-          if (modality === 'Image') finalMapping.image = 'image'
-          if (modality === 'Video') finalMapping.video = 'video'
-          if (modality === 'Audio') finalMapping.audio = 'audio'
       }
-      // 如果将来支持 Choice，可在此处扩展
+      // 🌟 场景 B: 多模态选择题 (新增逻辑)
+      else if (taskType === TASK_TYPES.CHOICE.value) {
+          finalMapping = {
+              question: 'question',
+              optA: 'A',
+              optB: 'B',
+              optC: 'C',
+              optD: 'D',
+              answer: 'answer'
+          }
+      }
+      
+      // 追加对应的媒体字段 (Image/Video/Audio)，确保它们被加入 input_columns
+      if (modality === 'Image') finalMapping.image = 'image'
+      if (modality === 'Video') finalMapping.video = 'video'
+      if (modality === 'Audio') finalMapping.audio = 'audio'
+  }
+
+  // 🌟 容错处理：如果 finalMapping 依然为空（防止后端报错）
+  // 即使 Text 模式下用户什么都没配，也给个兜底，防止 crash
+  if (Object.keys(finalMapping).length === 0) {
+      if (taskType === TASK_TYPES.CHOICE.value) {
+           finalMapping = { question: 'question', answer: 'answer' }
+      } else {
+           finalMapping = { prompt: 'text', target: 'label' } 
+      }
   }
 
   // 🌟 3. Reader Config (使用 finalMapping)
   const inputColumns = Object.values(finalMapping).filter(v => v)
   const outputColumnKey = taskType === TASK_TYPES.CHOICE.value ? 'answer' : 'target'
-  const outputColumn = finalMapping[outputColumnKey]
+  const outputColumn = finalMapping[outputColumnKey] || 'answer' // 兜底
 
   const readerCfg = {
     input_columns: inputColumns,

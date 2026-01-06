@@ -2,7 +2,8 @@
 import { computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DataAnalysis, List } from '@element-plus/icons-vue' 
-import { TASK_METRICS } from '@/utils/datasetAdapter'
+// 🌟 1. 引入 MODALITY_DEFAULT_TASK 用于自动推断
+import { TASK_METRICS, MODALITY_DEFAULT_TASK } from '@/utils/datasetAdapter'
 
 const props = defineProps(['state', 'uploadMode'])
 
@@ -20,9 +21,23 @@ const availableMetrics = computed(() => {
 // ==========================================
 
 onMounted(() => {
+  // 🌟 2. 核心修复：多模态自动补全 Task Type
+  // 如果当前是多模态数据（非 Text），且尚未设置 taskType（因为上一步可能隐藏了选择框），
+  // 则根据模态自动填入默认值（例如 Image -> qa），确保下方能显示出指标。
+  if (!props.state.taskType && props.state.modality && props.state.modality !== 'Text') {
+    const defaultTask = MODALITY_DEFAULT_TASK[props.state.modality]
+    if (defaultTask) {
+      props.state.taskType = defaultTask
+      console.log(`[Auto-Config] Detected ${props.state.modality}, auto-set taskType to '${defaultTask}'`)
+    }
+  }
+
+  //原有逻辑：默认选中推荐指标
   const { metrics } = props.state
-  // 默认选中推荐的指标
   if (metrics.length === 0) {
+    // 注意：availableMetrics 是 computed，依赖上面的 taskType 赋值
+    // Vue 的响应式系统会自动处理，但为了确保在 onMounted 内能立即拿到值，
+    // 这里我们直接依赖 computed 的 .value
     const defaults = availableMetrics.value.filter(m => m.default).map(m => m.value)
     props.state.metrics = defaults
   }
@@ -86,7 +101,7 @@ defineExpose({ validate })
             </el-checkbox-group>
             
             <div class="empty-tip" v-if="availableMetrics.length === 0">
-              请先在“上一步”选择正确的任务类型 (或多模态默认类型)
+              暂无适用于当前模态 ({{ state.modality || '未知' }}) 或任务类型的指标。
             </div>
           </div>
         </div>
@@ -104,14 +119,16 @@ defineExpose({ validate })
               <span class="value">{{ state.meta.name }}</span>
             </div>
 
-            <div class="summary-row" v-if="uploadMode === 'multimodal'">
+            <div class="summary-row" v-if="uploadMode === 'multimodal' || state.modality !== 'Text'">
               <span class="label">数据模态:</span>
               <span class="value">{{ state.modality }}</span>
             </div>
 
             <div class="summary-row">
               <span class="label">任务类型:</span>
-              <span class="value">{{ state.taskType === 'choice' ? '客观选择题' : '开放式问答' }}</span>
+              <span class="value">
+                {{ state.taskType === 'choice' ? '客观选择题' : (state.taskType === 'qa' ? '开放式问答' : state.taskType || '-') }}
+              </span>
             </div>
             
             <div class="divider"></div>
