@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import time
 from datetime import datetime
 from fastapi import HTTPException
 from sqlmodel import Session, select
@@ -151,8 +152,11 @@ class TaskService:
 
             # 5. 执行评测
             print(f"🚀 [Task {task_id}] Running OpenCompass...")
+            start_time = time.time()
             runner.run(config_path)
-            
+            end_time = time.time()
+            total_duration = end_time - start_time
+
             # 运行完成后，进度跳到 90%
             task.progress = 90
             self.session.add(task)
@@ -200,6 +204,10 @@ class TaskService:
 
             # 7. 生成最终的任务摘要 (Radar + Table)
             final_summary = self._generate_summary(table_data)
+            final_summary["time_stats"] = {
+                "total_duration": round(total_duration, 2),
+                "avg_per_dataset": round(total_duration / len(configs), 2) if configs else 0
+            }
             
             task.result_summary = json.dumps(final_summary)
             task.status = "success"

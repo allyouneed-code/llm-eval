@@ -1,8 +1,11 @@
 <script setup>
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
-import { getTask } from '@/api/task'
-import { CircleCheck, CircleClose, Loading } from '@element-plus/icons-vue'
+// 🌟 1. 引入下载 API
+import { getTask, downloadTaskReport } from '@/api/task'
+// 🌟 2. 引入所需图标 (Download, Timer)
+import { CircleCheck, CircleClose, Loading, Download, Timer } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -67,6 +70,39 @@ const fetchTaskDetail = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 🌟 3. 下载 CSV 报告处理函数
+const handleDownloadReport = async () => {
+  if (!props.taskId) return
+  try {
+    const blob = await downloadTaskReport(props.taskId)
+    
+    // 创建下载链接并自动点击
+    const url = window.URL.createObjectURL(new Blob([blob]))
+    const link = document.createElement('a')
+    link.href = url
+    // 以此格式命名文件: task_{id}_summary.csv
+    link.setAttribute('download', `task_${props.taskId}_summary.csv`) 
+    document.body.appendChild(link)
+    link.click()
+    
+    // 清理
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('下载报告失败，文件可能不存在')
+  }
+}
+
+// 🌟 4. 格式化耗时显示
+const formatDuration = (seconds) => {
+  if (seconds === undefined || seconds === null) return '--'
+  if (seconds < 60) return `${Number(seconds).toFixed(1)}s`
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}m ${s}s`
 }
 
 // 🌟 核心：实时日志流处理
@@ -168,7 +204,7 @@ const scrollToBottom = () => {
   })
 }
 
-// 初始化图表 (保持之前的修复版本)
+// 初始化图表
 const initRadarChart = () => {
   const chartDom = document.getElementById('result-radar')
   if (!chartDom) return
@@ -260,7 +296,37 @@ onUnmounted(() => {
       />
 
       <div v-if="task.status === 'success' && taskResult" class="result-section">
-        <div class="section-title">评测结果分析</div>
+        <div class="section-header">
+          <div class="section-title-text">评测结果分析</div>
+          
+          <div v-if="taskResult.time_stats" class="time-stats">
+            <el-tooltip content="实际推理与评测总耗时" placement="top">
+              <div class="stat-item">
+                <el-icon><Timer /></el-icon>
+                <span class="label">总耗时:</span>
+                <span class="value">{{ formatDuration(taskResult.time_stats.total_duration) }}</span>
+              </div>
+            </el-tooltip>
+            <el-divider direction="vertical" />
+            <el-tooltip content="平均每个数据集的耗时" placement="top">
+              <div class="stat-item">
+                <span class="label">平均/集:</span>
+                <span class="value">{{ formatDuration(taskResult.time_stats.avg_per_dataset) }}</span>
+              </div>
+            </el-tooltip>
+          </div>
+
+          <el-button 
+            type="primary" 
+            link 
+            :icon="Download" 
+            @click="handleDownloadReport"
+            style="margin-left: 10px;"
+          >
+            下载 CSV 报告
+          </el-button>
+        </div>
+
         <div class="chart-wrapper">
           <div id="result-radar" style="width: 100%; height: 300px; min-height: 300px;"></div>
            <el-empty 
@@ -319,6 +385,43 @@ onUnmounted(() => {
   font-size: 12px; font-weight: bold; 
 }
 
+/* 🌟 6. 新增样式：Flex 布局的 Header */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  border-left: 4px solid #409eff;
+  padding-left: 10px;
+}
+.section-title-text { 
+  font-size: 16px; 
+  font-weight: 600; 
+  color: #303133; 
+}
+
+/* 🌟 7. 新增样式：耗时统计条 */
+.time-stats {
+  display: flex;
+  align-items: center;
+  margin-left: auto; /* 将统计部分推到右侧 */
+  margin-right: 12px;
+  background: #f0f2f5;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #606266;
+}
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: help;
+}
+.stat-item .label { color: #909399; }
+.stat-item .value { font-weight: 600; color: #303133; }
+
+/* 旧的 section-title 保留给 Log 使用 */
 .section-title { 
   font-size: 16px; font-weight: 600; color: #303133; 
   margin-bottom: 12px; border-left: 4px solid #409eff; padding-left: 10px; 
@@ -329,7 +432,7 @@ onUnmounted(() => {
 
 /* 终端模拟 */
 .terminal-box { 
-  background: #1e1e1e; color: #a6e22e; padding: 15px; height: 350px; /* 增加高度以便查看更多日志 */
+  background: #1e1e1e; color: #a6e22e; padding: 15px; height: 350px; 
   overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; 
   border-radius: 8px; line-height: 1.5; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
 }

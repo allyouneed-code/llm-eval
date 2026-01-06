@@ -26,3 +26,9 @@ export function deleteTask(id) {
 export function compareTasks(data) {
   return request.post(URL + '/compare', data)
 }
+
+export function downloadTaskReport(id) {
+  return request.get(URL + `/${id}/download`, {
+    responseType: 'blob' // 关键：指定响应类型为二进制流
+  })
+}

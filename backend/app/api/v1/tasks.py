@@ -1,10 +1,11 @@
 import json
 import os
 import time
+import glob
 import asyncio
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse  # 🌟 新增引入
+from fastapi.responses import StreamingResponse, FileResponse  # 🌟 新增引入
 from sqlmodel import Session, select, func
 from sqlalchemy.orm import selectinload
 
@@ -190,3 +191,35 @@ def compare_tasks_api(
     """
     task_service = TaskService(session)
     return task_service.compare_tasks(req.task_ids)
+
+@router.get("/{task_id}/download")
+def download_task_report(task_id: int, session: Session = Depends(get_session)):
+    """
+    下载评测生成的 CSV 汇总报告
+    """
+    # 1. 确认任务存在
+    task = session.get(EvaluationTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # 2. 动态查找 CSV 文件
+    # 目录结构: workspace/tasks/task_{id}/{timestamp}/summary/summary_{timestamp}.csv
+    workspace = os.path.join(os.getcwd(), "workspace", "tasks", f"task_{task_id}")
+    
+    # 使用 glob 匹配 summary 目录下的 csv（跨过中间的时间戳目录）
+    pattern = os.path.join(workspace, "*", "summary", "summary_*.csv")
+    csv_files = glob.glob(pattern)
+    
+    if not csv_files:
+        raise HTTPException(status_code=404, detail="Report file not found. The task might have failed or results are missing.")
+        
+    # 3. 获取最新的文件 (以防有多次运行残留)
+    latest_csv = max(csv_files, key=os.path.getmtime)
+    filename = os.path.basename(latest_csv)
+    
+    # 4. 返回文件
+    return FileResponse(
+        path=latest_csv, 
+        filename=filename, 
+        media_type='text/csv'
+    )
