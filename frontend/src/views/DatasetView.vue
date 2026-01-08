@@ -17,17 +17,16 @@ import KnowledgePopover from './components/dataset/KnowledgePopover.vue'
 
 // 3. 逻辑 Hooks
 const { 
-  tableData, totalItems, loading, categoryStats, 
-  filter, fetchData, fetchStats, handleDelete, parseConfigInfo 
+  tableData, totalItems, loading, categoryStats, totalQuestions,
+  filter, fetchData, fetchStats, handleDelete, parseConfigInfo,
+  handleSortChange 
 } = useDatasetList()
 
 // 4. UI 状态
 const importDialogVisible = ref(false)
-// 数据预览 (Rows Preview)
 const dataPreviewVisible = ref(false)
 const dataPreviewContent = ref({ columns: [], rows: [] })
 const dataPreviewLoading = ref(false)
-// 详情抽屉 (Meta/Config Detail)
 const detailDrawerVisible = ref(false)
 const currentDataset = ref(null)
 
@@ -47,7 +46,6 @@ const getModalityTagType = (modality) => {
 
 const handleSearch = () => {
   filter.value.page = 1
-  // keyword 变化触发 watch 自动加载
 }
 
 const handleRefresh = () => {
@@ -95,6 +93,11 @@ const handleDownload = (row) => {
           <div class="toolbar-left">
             <h2 class="page-title">{{ filter.category === 'All' ? '所有数据集' : filter.category }}</h2>
             <el-tag type="info" round class="count-tag">{{ totalItems }} items</el-tag>
+            
+            <el-tag type="success" round class="count-tag ml-2" effect="plain">
+              共 {{ totalQuestions ? totalQuestions.toLocaleString() : 0 }} 题
+            </el-tag>
+
             <KnowledgePopover />
           </div>
           
@@ -122,8 +125,16 @@ const handleDownload = (row) => {
         </div>
 
         <div class="table-wrapper">
-          <el-table :data="tableData" v-loading="loading" border stripe height="100%" style="width: 100%">
-             <el-table-column prop="id" label="ID" width="60" align="center" sortable />
+          <el-table 
+            :data="tableData" 
+            v-loading="loading" 
+            border 
+            stripe 
+            height="100%" 
+            style="width: 100%"
+            @sort-change="handleSortChange"
+          >
+             <el-table-column prop="id" label="ID" width="60" align="center" sortable="custom" />
 
               <el-table-column label="名称" min-width="180" show-overflow-tooltip>
                 <template #default="scope">
@@ -137,6 +148,19 @@ const handleDownload = (row) => {
                 <template #default="scope">
                   <div v-if="scope.row.is_system" class="source-badge official"><el-icon><Medal /></el-icon> 官方</div>
                   <div v-else class="source-badge private"><el-icon><User /></el-icon> 私有</div>
+                </template>
+              </el-table-column>
+
+              <el-table-column 
+                label="数据量" 
+                width="110" 
+                align="center" 
+                prop="data_count" 
+                sortable="custom"
+              >
+                <template #default="{ row }">
+                   <span v-if="row.data_count > 0" style="font-family: monospace;">{{ row.data_count.toLocaleString() }}</span>
+                   <span v-else class="empty-text">-</span>
                 </template>
               </el-table-column>
     
@@ -252,9 +276,12 @@ const handleDownload = (row) => {
            <el-tag>{{ currentDataset.category }}</el-tag>
         </div>
         
-        <div style="margin-bottom: 10px;">
+        <div style="margin-bottom: 10px; display: flex; gap: 8px;">
            <el-tag :type="getModalityTagType(currentDataset.modality)" size="small" effect="plain">
               {{ currentDataset.modality || 'Text' }} Modality
+           </el-tag>
+           <el-tag type="info" size="small" effect="plain">
+              {{ currentDataset.data_count > 0 ? currentDataset.data_count.toLocaleString() : '-' }} rows
            </el-tag>
         </div>
 
@@ -345,5 +372,6 @@ const handleDownload = (row) => {
 .v.code { font-family: monospace; background: #fff; padding: 0 4px; border-radius: 3px; border: 1px solid #eee; color: #d63384; }
 
 .mr-1 { margin-right: 4px; }
+.ml-2 { margin-left: 8px; }
 .loading-wrapper { text-align: center; padding: 40px; }
 </style>

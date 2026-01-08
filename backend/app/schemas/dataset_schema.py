@@ -113,7 +113,7 @@ class DatasetMetaBase(SQLModel):
     category: str = "Base"
     description: Optional[str] = None
     modality: str = "Text"
-    
+    data_count: int = 0
     # 🆕 保持之前添加的软删除字段定义（如果之前在 Model 加了，Schema 最好也体现，或者在 Read 中体现）
     # 但通常 Base 里不放 is_deleted 避免创建时被篡改，这里只需 Read 里有即可
     # is_deleted: bool = False 

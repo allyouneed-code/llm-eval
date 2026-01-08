@@ -8,6 +8,13 @@ export function useDatasetList() {
   const totalItems = ref(0)
   const loading = ref(false)
   const categoryStats = ref([])
+  
+  // 🆕 新增：总题量状态
+  const totalQuestions = ref(0)
+  const sortState = ref({
+    prop: '', 
+    order: '' // 'ascending' | 'descending' | null
+  })
 
   // 筛选状态
   const filter = ref({
@@ -18,11 +25,21 @@ export function useDatasetList() {
     privateOnly: false
   })
 
-  // 1. 获取统计信息
+  // 1. 获取统计信息 (兼容新旧 API 结构)
   const fetchStats = async () => {
     try {
       const data = await getDatasetStats()
-      categoryStats.value = data
+      
+      // 检查返回结构
+      if (Array.isArray(data)) {
+        // 旧结构 (List)
+        categoryStats.value = data
+        totalQuestions.value = 0
+      } else {
+        // 新结构 (Object): { categories: [], total_questions: 123 }
+        categoryStats.value = data.categories || []
+        totalQuestions.value = data.total_questions || 0
+      }
     } catch (e) {
       console.error(e)
     }
@@ -37,30 +54,41 @@ export function useDatasetList() {
         page_size: filter.value.pageSize,
         category: filter.value.category,
         keyword: filter.value.keyword || undefined,
-        private_only: filter.value.privateOnly
+        private_only: filter.value.privateOnly,
+        // 🆕 注入排序参数
+        sort_prop: sortState.value.prop || undefined,
+        sort_order: sortState.value.order || undefined
       }
 
       const data = await getDatasets(params)
+      // ... (后续数据处理逻辑保持不变)
       totalItems.value = data.total
-      
-      // 处理 is_system 标记
       tableData.value = data.items.map(d => {
-        let isSystem = true
-        if (!d.configs || d.configs.length === 0) {
-          isSystem = false 
-        } else {
-          const path = d.configs[0].file_path || ''
-          if (path.includes('data/datasets') || path.includes('data\\datasets')) {
-            isSystem = false
-          }
-        }
-        return { ...d, is_system: isSystem }
+         // ... (is_system 处理逻辑)
+         let isSystem = true
+         if (!d.configs || d.configs.length === 0) {
+           isSystem = false 
+         } else {
+           const path = d.configs[0].file_path || ''
+           if (path.includes('data/datasets') || path.includes('data\\datasets')) {
+             isSystem = false
+           }
+         }
+         return { ...d, is_system: isSystem }
       })
     } catch (error) {
       ElMessage.error('获取数据集列表失败')
     } finally {
       loading.value = false
     }
+  }
+
+  const handleSortChange = ({ prop, order }) => {
+    sortState.value.prop = prop
+    sortState.value.order = order
+    // 排序变化时，通常建议重置到第一页
+    filter.value.page = 1 
+    fetchData()
   }
 
   // 3. 删除逻辑
@@ -75,7 +103,7 @@ export function useDatasetList() {
       .catch(() => {})
   }
 
-  // 监听筛选变化 (分页、分类、只看私有)
+  // 监听筛选变化
   watch(
     () => [filter.value.page, filter.value.pageSize, filter.value.category, filter.value.privateOnly],
     () => fetchData()
@@ -107,9 +135,11 @@ export function useDatasetList() {
     totalItems,
     loading,
     categoryStats,
+    totalQuestions, // 导出
     filter,
     fetchData,
     fetchStats,
+    handleSortChange,
     handleDelete,
     parseConfigInfo
   }

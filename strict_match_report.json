@@ -1,0 +1,517 @@
+{
+  "summary": {
+    "total_valid_metas": 250,
+    "matched": 64,
+    "total_rows": 882252
+  },
+  "details": [
+    {
+      "name": "ARC_c",
+      "strategy": "Prefix Match (arc-c)",
+      "count": 1472
+    },
+    {
+      "name": "ARC_e",
+      "strategy": "Prefix Match (arc-e)",
+      "count": 2946
+    },
+    {
+      "name": "MMLUArabic",
+      "strategy": "Prefix Match (mmlu)",
+      "count": 145
+    },
+    {
+      "name": "MathBench",
+      "strategy": "Prefix Match (math)",
+      "count": 94
+    },
+    {
+      "name": "PHYSICS",
+      "strategy": "Exact Folder",
+      "count": 305
+    },
+    {
+      "name": "SVAMP",
+      "strategy": "Exact Folder",
+      "count": 1000
+    },
+    {
+      "name": "TheoremQA",
+      "strategy": "Exact Folder",
+      "count": 11798
+    },
+    {
+      "name": "XLSum",
+      "strategy": "Exact Folder",
+      "count": 4500
+    },
+    {
+      "name": "Xsum",
+      "strategy": "Exact Folder",
+      "count": 205484
+    },
+    {
+      "name": "cmb",
+      "strategy": "Exact Folder",
+      "count": 11480
+    },
+    {
+      "name": "commonsenseqa",
+      "strategy": "Exact Folder",
+      "count": 12102
+    },
+    {
+      "name": "commonsenseqa_cn",
+      "strategy": "Exact Folder",
+      "count": 10962
+    },
+    {
+      "name": "crowspairs_cn",
+      "strategy": "Exact Folder",
+      "count": 1508
+    },
+    {
+      "name": "drop",
+      "strategy": "Exact Folder",
+      "count": 440
+    },
+    {
+      "name": "game24",
+      "strategy": "Exact Folder",
+      "count": 1362
+    },
+    {
+      "name": "gpqa",
+      "strategy": "Exact Folder",
+      "count": 56661
+    },
+    {
+      "name": "gsm8k",
+      "strategy": "Exact Folder",
+      "count": 17584
+    },
+    {
+      "name": "hellaswag",
+      "strategy": "Exact Folder",
+      "count": 49973
+    },
+    {
+      "name": "humaneval",
+      "strategy": "Exact Folder",
+      "count": 164
+    },
+    {
+      "name": "humaneval_cn",
+      "strategy": "Exact Folder",
+      "count": 164
+    },
+    {
+      "name": "humaneval_multi",
+      "strategy": "Prefix Match (humaneval)",
+      "count": 164
+    },
+    {
+      "name": "humaneval_plus",
+      "strategy": "Prefix Match (humaneval)",
+      "count": 164
+    },
+    {
+      "name": "humaneval_pro",
+      "strategy": "Prefix Match (humaneval)",
+      "count": 164
+    },
+    {
+      "name": "infinitebenchcodedebug",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchcoderun",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchendia",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchenmc",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchenqa",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchensum",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchmathcalc",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchmathfind",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchretrievekv",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchretrievenumber",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchretrievepasskey",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "infinitebenchzhqa",
+      "strategy": "Prefix Match (infinitebench)",
+      "count": 3946
+    },
+    {
+      "name": "lambada",
+      "strategy": "Exact Folder",
+      "count": 5153
+    },
+    {
+      "name": "lcsts",
+      "strategy": "Exact Folder",
+      "count": 21332
+    },
+    {
+      "name": "math",
+      "strategy": "Exact Folder",
+      "count": 94
+    },
+    {
+      "name": "math401",
+      "strategy": "Exact Folder",
+      "count": 401
+    },
+    {
+      "name": "mbpp",
+      "strategy": "Exact Folder",
+      "count": 1401
+    },
+    {
+      "name": "mbpp_cn",
+      "strategy": "Exact Folder",
+      "count": 974
+    },
+    {
+      "name": "mbpp_plus",
+      "strategy": "Exact Folder",
+      "count": 399
+    },
+    {
+      "name": "mbpp_pro",
+      "strategy": "Prefix Match (mbpp)",
+      "count": 1401
+    },
+    {
+      "name": "medmcqa",
+      "strategy": "Prefix Match (medmc)",
+      "count": 320
+    },
+    {
+      "name": "mmlu",
+      "strategy": "Exact Folder",
+      "count": 145
+    },
+    {
+      "name": "mmlu_cf",
+      "strategy": "Manual (Folder)",
+      "count": 145
+    },
+    {
+      "name": "mmlu_pro",
+      "strategy": "Prefix Match (mmlu)",
+      "count": 145
+    },
+    {
+      "name": "multipl_e",
+      "strategy": "Prefix Match (mul)",
+      "count": 8417
+    },
+    {
+      "name": "nq",
+      "strategy": "Exact Folder",
+      "count": 12365
+    },
+    {
+      "name": "nq_cn",
+      "strategy": "Exact Folder",
+      "count": 12367
+    },
+    {
+      "name": "piqa",
+      "strategy": "Exact Folder",
+      "count": 17951
+    },
+    {
+      "name": "py150",
+      "strategy": "Exact Folder",
+      "count": 10000
+    },
+    {
+      "name": "qabench",
+      "strategy": "Exact Folder",
+      "count": 1527
+    },
+    {
+      "name": "scibench",
+      "strategy": "Exact Folder",
+      "count": 695
+    },
+    {
+      "name": "siqa",
+      "strategy": "Exact Folder",
+      "count": 35364
+    },
+    {
+      "name": "squad20",
+      "strategy": "Prefix Match (squad2.0)",
+      "count": 35
+    },
+    {
+      "name": "strategyqa",
+      "strategy": "Exact Folder",
+      "count": 2290
+    },
+    {
+      "name": "summedits",
+      "strategy": "Exact Folder",
+      "count": 6348
+    },
+    {
+      "name": "supergpqa",
+      "strategy": "Manual (Folder)",
+      "count": 56661
+    },
+    {
+      "name": "triviaqa",
+      "strategy": "Exact Folder",
+      "count": 90029
+    },
+    {
+      "name": "triviaqarc",
+      "strategy": "Prefix Match (triviaqa)",
+      "count": 90029
+    },
+    {
+      "name": "wikibench",
+      "strategy": "Prefix Match (wiki)",
+      "count": 1002
+    },
+    {
+      "name": "wikitext",
+      "strategy": "Prefix Match (wiki)",
+      "count": 1002
+    },
+    {
+      "name": "winogrande",
+      "strategy": "Exact Folder",
+      "count": 66272
+    }
+  ],
+  "unmatched": [
+    "ARC_Prize_Public_Evaluation",
+    "BeyondAIME",
+    "CHARM",
+    "CLUE_C3",
+    "CLUE_CMRC",
+    "CLUE_DRCD",
+    "CLUE_afqmc",
+    "CLUE_cmnli",
+    "CLUE_ocnli",
+    "CMPhysBench",
+    "ChemBench",
+    "ClimaQA",
+    "ClinicBench",
+    "Earth_Silver",
+    "FewCLUE_bustm",
+    "FewCLUE_chid",
+    "FewCLUE_cluewsc",
+    "FewCLUE_csl",
+    "FewCLUE_eprstmt",
+    "FewCLUE_ocnli_fc",
+    "FewCLUE_tnews",
+    "FinanceIQ",
+    "GLUE_CoLA",
+    "GLUE_MRPC",
+    "GLUE_QQP",
+    "GaokaoBench",
+    "HLE",
+    "IFEval",
+    "LCBench",
+    "MedBench",
+    "MedXpertQA",
+    "Medbullets",
+    "MolInstructions_chem",
+    "NPHardEval",
+    "OlymMATH",
+    "OpenFinData",
+    "PHYBench",
+    "PI_LLM",
+    "PJExam",
+    "PMMEval",
+    "PubMedQA",
+    "QuALITY",
+    "ScienceQA",
+    "SeedBench",
+    "SimpleQA",
+    "SmolInstruct",
+    "SuperGLUE_AX_b",
+    "SuperGLUE_AX_g",
+    "SuperGLUE_BoolQ",
+    "SuperGLUE_CB",
+    "SuperGLUE_COPA",
+    "SuperGLUE_MultiRC",
+    "SuperGLUE_RTE",
+    "SuperGLUE_ReCoRD",
+    "SuperGLUE_WSC",
+    "SuperGLUE_WiC",
+    "TabMWP",
+    "XCOPA",
+    "adv_glue_mnli",
+    "adv_glue_mnli_mm",
+    "adv_glue_qnli",
+    "adv_glue_qqp",
+    "adv_glue_rte",
+    "adv_glue_sst2",
+    "agieval",
+    "aime2024",
+    "anli",
+    "anthropics_evals",
+    "apps",
+    "atlas",
+    "babilong",
+    "bbeh",
+    "bbh",
+    "bigcodebench",
+    "biodata",
+    "ceval",
+    "chatobj_custom",
+    "chem_exam",
+    "chinese_simpleqa",
+    "clozeTest_maxmin",
+    "cmmlu",
+    "cmo_fib",
+    "compassbench_v1_3",
+    "crowspairs",
+    "cvalues",
+    "demo",
+    "dingo",
+    "eese",
+    "flames",
+    "flores",
+    "govrepcrs",
+    "gsm_hard",
+    "humanevalx",
+    "hungarian_exam",
+    "inference_ppl",
+    "internsandbox",
+    "iwslt2017",
+    "kaoshi",
+    "kcle",
+    "korbench",
+    "levalcoursera",
+    "levalfinancialqa",
+    "levalgovreportsumm",
+    "levalgsm100",
+    "levallegalcontractqa",
+    "levalmeetingsumm",
+    "levalmultidocqa",
+    "levalnarrativeqa",
+    "levalnaturalquestion",
+    "levalnewssumm",
+    "levalpaperassistant",
+    "levalpatentsumm",
+    "levalquality",
+    "levalreviewsumm",
+    "levalscientificqa",
+    "levaltopicretrieval",
+    "levaltpo",
+    "levaltvshowsumm",
+    "livecodebench",
+    "livemathbench",
+    "livereasonbench",
+    "livestembench",
+    "longbench2wikimqa",
+    "longbenchdureader",
+    "longbenchgov_report",
+    "longbenchhotpotqa",
+    "longbenchlcc",
+    "longbenchlsht",
+    "longbenchmulti_news",
+    "longbenchmultifieldqa_en",
+    "longbenchmultifieldqa_zh",
+    "longbenchmusique",
+    "longbenchnarrativeqa",
+    "longbenchpassage_count",
+    "longbenchpassage_retrieval_en",
+    "longbenchpassage_retrieval_zh",
+    "longbenchqasper",
+    "longbenchqmsum",
+    "longbenchrepobench",
+    "longbenchsamsum",
+    "longbenchtrec",
+    "longbenchtriviaqa",
+    "longbenchv2",
+    "longbenchvcsum",
+    "lvevalcmrc_mixup",
+    "lvevaldureader_mixup",
+    "lvevalfactrecall_en",
+    "lvevalfactrecall_zh",
+    "lvevalhotpotwikiqa_mixup",
+    "lvevallic_mixup",
+    "lvevalloogle_CR_mixup",
+    "lvevalloogle_MIR_mixup",
+    "lvevalloogle_SD_mixup",
+    "lvevalmultifieldqa_en_mixup",
+    "lvevalmultifieldqa_zh_mixup",
+    "mastermath2024v1",
+    "matbench",
+    "mgsm",
+    "mmmlu",
+    "mmmlu_lite",
+    "musr",
+    "narrativeqa",
+    "needlebench_base",
+    "nejm_ai_benchmark",
+    "obqa",
+    "ojbench",
+    "omni_math",
+    "openswi",
+    "qasper",
+    "qaspercut",
+    "race",
+    "realtoxicprompts",
+    "rolebench",
+    "ruler",
+    "s3eval",
+    "safety",
+    "scicode",
+    "srbench",
+    "storycloze",
+    "summscreen",
+    "taco",
+    "teval",
+    "truthfulqa",
+    "tydiqa",
+    "winograd",
+    "xiezhi"
+  ]
+}

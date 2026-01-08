@@ -27,6 +27,7 @@ class DatasetMeta(SQLModel, table=True):
 
     modality: str = Field(default="Text") #数据模态 (Text, Image, Audio, Video)
     
+    data_count: int = Field(default=0)
     # 关系定义保持原样，不需要加 cascade="all, delete-orphan" 了
     configs: List["DatasetConfig"] = Relationship(back_populates="meta")
     created_at: datetime = Field(default_factory=datetime.utcnow)

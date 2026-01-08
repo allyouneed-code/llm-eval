@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from sqlmodel import Session, select, func, or_
 from sqlalchemy.orm import selectinload 
 from typing import List, Optional, Dict, Any
+from sqlalchemy import desc, asc  # 🆕 确保引入排序函数
 
 from app.core.database import get_session
 from app.models.dataset import DatasetMeta, DatasetConfig
@@ -28,82 +29,52 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 def _flatten_row(row: Dict[str, Any], parent_key: str = '', sep: str = '_') -> Dict[str, Any]:
     """
     递归扁平化 JSON 行，并智能处理 choices 列表
-    例如: 
-    input: { "question": { "stem": "Q1", "choices": [{"label": "A", "text": "Apple"}] } }
-    output: { "question_stem": "Q1", "question_choices_A": "Apple" }
     """
     items = {}
     for k, v in row.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         
         if isinstance(v, dict):
-            # 递归处理字典
             items.update(_flatten_row(v, new_key, sep=sep))
-            
         elif isinstance(v, list):
-            # 🌟 智能处理列表：尝试识别为选项列表
             is_choice_list = False
             extracted = {}
-            
-            # 检查是否符合 [{"label": "A", "text": "..."}] 或类似结构
-            # 仅当列表非空且元素为字典时检查
             if v and isinstance(v[0], dict):
-                # 收集所有可能的 key
                 first_keys = v[0].keys()
-                # 常见的 label key
                 label_key = next((lk for lk in ['label', 'key', 'option'] if lk in first_keys), None)
-                # 常见的 content key
                 text_key = next((tk for tk in ['text', 'content', 'value'] if tk in first_keys), None)
-                
                 if label_key and text_key:
                     is_choice_list = True
                     for item in v:
                         if label_key in item and text_key in item:
                             label_val = item[label_key]
-                            # 生成列名，如 question_choices_A
                             col_name = f"{new_key}{sep}{label_val}"
                             extracted[col_name] = item[text_key]
             
             if is_choice_list:
                 items.update(extracted)
             else:
-                # 如果不是标准选项列表，保留原样 (转字符串或保留对象)
-                # 为了兼容 Pandas/CSV，通常转为 JSON 字符串更安全，但这里暂保留原值
                 items[new_key] = v
         else:
             items[new_key] = v
-            
     return items
 
 def _handle_zip_upload(upload_file: UploadFile, dataset_name: str) -> str:
-    """
-    处理 ZIP 上传：
-    1. 保存 ZIP
-    2. 解压到 data/datasets/{name}/
-    3. 寻找 .jsonl 或 .json 作为主索引文件
-    4. 返回主索引文件的绝对路径
-    """
-    # 定义目录
     base_dir = os.path.join(UPLOAD_DIR, dataset_name)
     os.makedirs(base_dir, exist_ok=True)
-    
     zip_path = os.path.join(base_dir, "upload.zip")
     
-    # 1. 保存 ZIP 文件
     upload_file.file.seek(0)
     with open(zip_path, "wb") as buffer:
         shutil.copyfileobj(upload_file.file, buffer)
         
-    # 2. 解压
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(base_dir)
     except zipfile.BadZipFile:
-        shutil.rmtree(base_dir) # 清理
+        shutil.rmtree(base_dir)
         raise HTTPException(status_code=400, detail="无效的 ZIP 文件")
         
-    # 3. 寻找索引文件 (优先找 .jsonl，其次 .json)
-    # 遍历解压后的目录（只找顶层）
     found_file = None
     for root, dirs, files in os.walk(base_dir):
         for file in files:
@@ -111,8 +82,6 @@ def _handle_zip_upload(upload_file: UploadFile, dataset_name: str) -> str:
                 found_file = os.path.join(root, file)
                 break
         if found_file: break
-        
-        # 如果没找到 jsonl，尝试找 json
         for file in files:
              if file.lower().endswith(".json"):
                 found_file = os.path.join(root, file)
@@ -124,46 +93,35 @@ def _handle_zip_upload(upload_file: UploadFile, dataset_name: str) -> str:
         
     return found_file
 
-def _process_and_save_file(upload_file: UploadFile, save_path: str):
+def _process_and_save_file(upload_file: UploadFile, save_path: str) -> int:
     """
-    读取上传文件，执行扁平化处理，并保存到磁盘
+    读取上传文件，执行扁平化处理，保存到磁盘，并返回数据行数
     """
     filename = upload_file.filename.lower()
-    
-    # 仅针对 JSONL/JSON 进行高级处理
+    row_count = 0 # 🆕 初始化计数器
+
     if filename.endswith(".jsonl") or filename.endswith(".json"):
         rows = []
         try:
-            # 读取内容
             content = upload_file.file.read()
-            # 重置指针以便后续可能的操作 (虽然这里读完就处理了)
             upload_file.file.seek(0)
             
-            # 解析
             if filename.endswith(".jsonl"):
-                # JSONL: 逐行解析
                 lines = content.decode('utf-8').splitlines()
                 for line in lines:
-                    if line.strip():
-                        rows.append(json.loads(line))
+                    if line.strip(): rows.append(json.loads(line))
             else:
-                # JSON: 整体解析
                 data = json.loads(content)
                 if isinstance(data, list):
                     rows = data
                 else:
                     rows = [data]
             
-            # 执行扁平化
+            # 🆕 获取行数
+            row_count = len(rows)
+            
             flattened_rows = [_flatten_row(row) for row in rows]
-            
-            # 转换为 DataFrame 并保存为 JSONL (标准化格式)
-            # 即使原文件是 JSON，我们也存为 JSONL，因为 OpenCompass 对 JSONL 支持最好
             df = pd.DataFrame(flattened_rows)
-            
-            # 强制转换为 jsonl 格式保存，覆盖原始后缀逻辑
-            # 但为了保持 save_path 的扩展名一致性，我们这里如果 save_path 是 .json，也写成 json 格式
-            # 建议：统一内部存储为 .jsonl 格式更优，但为了逻辑简单，我们按扩展名输出
             
             if save_path.endswith(".jsonl"):
                 df.to_json(save_path, orient='records', lines=True, force_ascii=False)
@@ -172,31 +130,38 @@ def _process_and_save_file(upload_file: UploadFile, save_path: str):
                 
         except Exception as e:
             print(f"Flattening failed: {e}, falling back to raw copy")
-            # 如果解析失败，回退到直接拷贝
             upload_file.file.seek(0)
             with open(save_path, "wb") as buffer:
                 shutil.copyfileobj(upload_file.file, buffer)
+            # 如果解析失败，回退时尝试简单数行数（针对 jsonl）
+            if filename.endswith('.jsonl'):
+                try:
+                    upload_file.file.seek(0)
+                    row_count = sum(1 for _ in upload_file.file)
+                except: pass
     else:
-        # CSV/Excel 直接拷贝，不做处理
+        # CSV/Excel 等其他格式
         upload_file.file.seek(0)
         with open(save_path, "wb") as buffer:
             shutil.copyfileobj(upload_file.file, buffer)
+        # 尝试读取行数 (CSV)
+        if filename.endswith('.csv'):
+            try:
+                upload_file.file.seek(0)
+                row_count = sum(1 for _ in upload_file.file) - 1 # 减去表头
+                if row_count < 0: row_count = 0
+            except: pass
+
+    return row_count # 🆕 返回行数
 
 def _parse_preview_data(filepath_or_buffer, filename: str):
-    """解析文件前几行用于预览 (应用扁平化逻辑)"""
     filename = filename.lower()
     df = None
     try:
-        # 如果是上传对象 (UploadFile.file)，读取内容并解析
-        # 这里的 filepath_or_buffer 可能是 bytes IO，也可能是路径字符串
-        
         is_path = isinstance(filepath_or_buffer, str)
-        
         if filename.endswith(".jsonl") or filename.endswith(".json"):
-            # 针对 JSON/JSONL，先手动读取前几行进行扁平化，而不是直接用 pd.read_json
             rows = []
             if is_path:
-                # 读本地文件 (预览已保存的)
                 with open(filepath_or_buffer, 'r', encoding='utf-8') as f:
                     if filename.endswith(".jsonl"):
                         for _ in range(5):
@@ -204,53 +169,39 @@ def _parse_preview_data(filepath_or_buffer, filename: str):
                             if not line: break
                             rows.append(json.loads(line))
                     else:
-                        # JSON 只能全读 (或者读一部分但很难控制结构)，这里假设文件不大或只预览已保存的
                         data = json.load(f)
                         rows = data[:5] if isinstance(data, list) else [data]
             else:
-                # 读内存流 (上传时的预览)
-                # 注意：流只能读一次，读完要 seek 回去，或者只读一部分
-                # 这里简单处理：读取前 5 行 (针对 JSONL)
                 if filename.endswith(".jsonl"):
                     for _ in range(5):
                         line = filepath_or_buffer.readline()
                         if not line: break
                         rows.append(json.loads(line))
-                    filepath_or_buffer.seek(0) # 重置
+                    filepath_or_buffer.seek(0)
                 else:
-                    # JSON 流，全读
                     content = filepath_or_buffer.read()
                     filepath_or_buffer.seek(0)
                     data = json.loads(content)
                     rows = data[:5] if isinstance(data, list) else [data]
-            
-            # 扁平化预览数据
             flat_rows = [_flatten_row(row) for row in rows]
             df = pd.DataFrame(flat_rows)
-            
         elif filename.endswith(".csv"):
             df = pd.read_csv(filepath_or_buffer, nrows=5, on_bad_lines='skip')
         elif filename.endswith(".xlsx") or filename.endswith(".xls"):
             df = pd.read_excel(filepath_or_buffer, nrows=5)
         
         if df is not None:
-            # 处理 NaN
             df = df.where(pd.notnull(df), None)
-            return {
-                "columns": list(df.columns),
-                "rows": df.to_dict(orient="records")
-            }
+            return {"columns": list(df.columns), "rows": df.to_dict(orient="records")}
     except Exception as e:
         print(f"Parse Error: {e}")
     return {"columns": [], "rows": []}
 
 def _extract_metric_name(eval_cfg_json: str, default: str = "Accuracy") -> str:
-    """从 metric_config JSON 中提取主要的指标名称"""
     try:
         data = json.loads(eval_cfg_json)
         evaluator = data.get('evaluator', {})
         etype = evaluator.get('type') if isinstance(evaluator, dict) else evaluator
-        
         s_type = str(etype)
         if 'AccEvaluator' in s_type: return 'Accuracy'
         if 'BleuEvaluator' in s_type: return 'BLEU'
@@ -265,7 +216,6 @@ def _extract_metric_name(eval_cfg_json: str, default: str = "Accuracy") -> str:
 
 @router.post("/preview")
 def preview_dataset(file: UploadFile = File(...)):
-    # 直接使用 file.file (SpooledTemporaryFile)
     return _parse_preview_data(file.file, file.filename)
 
 @router.get("/{meta_id}/preview")
@@ -273,11 +223,9 @@ def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session))
     meta = session.get(DatasetMeta, meta_id)
     if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到相关数据文件")
-    
     config = meta.configs[0]
     if not os.path.exists(config.file_path):
         raise HTTPException(status_code=404, detail="文件在磁盘上不存在")
-    
     return _parse_preview_data(config.file_path, config.file_path)
 
 @router.get("/{meta_id}/download")
@@ -285,11 +233,9 @@ def download_dataset_file(meta_id: int, session: Session = Depends(get_session))
     meta = session.get(DatasetMeta, meta_id)
     if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到文件")
-    
     config = meta.configs[0]
     if not os.path.exists(config.file_path):
         raise HTTPException(status_code=404, detail="文件不存在")
-    
     filename = os.path.basename(config.file_path)
     return FileResponse(path=config.file_path, filename=filename, media_type='application/octet-stream')
 
@@ -297,20 +243,29 @@ def download_dataset_file(meta_id: int, session: Session = Depends(get_session))
 # 3. 核心接口：创建与读取
 # ==========================================
 
-@router.get("/stats", response_model=List[CategoryStat])
+@router.get("/stats")
 def get_dataset_stats(session: Session = Depends(get_session)):
+    # 1. 分类统计
     statement = select(DatasetMeta.category, func.count(DatasetMeta.id))\
         .where(DatasetMeta.is_deleted == False)\
         .group_by(DatasetMeta.category)
     results = session.exec(statement).all()
-    stats = [{"category": row[0], "count": row[1]} for row in results]
-    return stats
+    categories = [{"category": row[0], "count": row[1]} for row in results]
+    
+    # 2. 总题量统计
+    total_stmt = select(func.sum(DatasetMeta.data_count)).where(DatasetMeta.is_deleted == False)
+    total_questions = session.exec(total_stmt).one() or 0
+    
+    return {
+        "categories": categories,
+        "total_questions": total_questions
+    }
 
 @router.post("/", response_model=DatasetMetaRead)
 def create_dataset(
     name: str = Form(...),
     category: str = Form(...),
-    modality: str = Form("Text"),  # 🆕 接收模态参数
+    modality: str = Form("Text"),
     description: Optional[str] = Form(None),
     configs_json: str = Form(...), 
     file: UploadFile = File(...),
@@ -321,7 +276,6 @@ def create_dataset(
     meta = session.exec(statement).first()
     
     if not meta:
-        # 🆕 存入 modality
         meta = DatasetMeta(name=name, category=category, modality=modality, description=description)
         session.add(meta)
         session.commit()
@@ -329,45 +283,26 @@ def create_dataset(
     else:
         if meta.is_deleted:
             meta.is_deleted = False
-            meta.category = category
-            meta.modality = modality # 🆕 更新 modality
-            if description: meta.description = description
-            session.add(meta)
-            session.commit()
-            session.refresh(meta)
-        else:
-            # 如果已存在且未删除，防止重名覆盖（或者你可以允许覆盖，看业务需求）
-            # 这里简单处理：允许更新元数据
-            meta.category = category
-            meta.modality = modality
-            session.add(meta)
-            session.commit()
+        meta.category = category
+        meta.modality = modality
+        if description: meta.description = description
+        session.add(meta)
+        session.commit()
     
     # 2. 保存并处理文件
     file_ext = os.path.splitext(file.filename)[1].lower()
-    
     final_file_path = ""
-    
+    current_count = 0 # 🆕 初始化当前文件行数
+
     if file_ext == ".zip":
-        # 🆕 ZIP 处理逻辑
-        # 解压后返回其中的 jsonl 路径
         raw_index_path = _handle_zip_upload(file, name)
-        
-        # 针对解压出的 jsonl，我们仍然建议做一次“扁平化”处理，以保证数据格式统一
-        # 我们将其保存为 {name}_processed.jsonl
         save_name = f"{name}_processed.jsonl"
         final_file_path = os.path.join(os.path.dirname(raw_index_path), save_name)
         
-        # 模拟一个 UploadFile 对象传给 _process_and_save_file (复用逻辑)
-        # 或者我们直接读取 raw_index_path 进行处理
         with open(raw_index_path, 'rb') as f:
-            # 临时构造对象复用现有 ETL 逻辑
-            # 注意：这里我们假设 _process_and_save_file 内部逻辑足够健壮
-            # 这里为了简单，我们手动做一下 ETL
             try:
                 content = f.read()
                 rows = []
-                # 尝试解析
                 if raw_index_path.endswith(".jsonl"):
                     lines = content.decode('utf-8').splitlines()
                     for line in lines:
@@ -376,29 +311,43 @@ def create_dataset(
                     data = json.loads(content)
                     rows = data if isinstance(data, list) else [data]
                 
-                # 扁平化
+                # 🆕 记录行数 (ZIP 情况)
+                current_count = len(rows)
+
                 flattened_rows = [_flatten_row(row) for row in rows]
                 df = pd.DataFrame(flattened_rows)
                 df.to_json(final_file_path, orient='records', lines=True, force_ascii=False)
                 
             except Exception as e:
                 print(f"ETL failed for zip content: {e}, using raw file")
-                final_file_path = raw_index_path # 回退使用原文件
-
+                final_file_path = raw_index_path
+                # 回退时如果可能，尝试简单计数
+                try:
+                    if raw_index_path.endswith('.jsonl'):
+                        current_count = len(content.decode('utf-8').splitlines())
+                except: pass
     else:
-        # 旧逻辑：单文件上传
         if file_ext in ['.json', '.jsonl']:
             save_name = f"{name}_base.jsonl"
         else:
             save_name = f"{name}_base{file_ext}"
             
         save_path = os.path.join(UPLOAD_DIR, save_name)
-        _process_and_save_file(file, save_path)
+        
+        # 🆕 接收返回的行数 (单文件情况)
+        current_count = _process_and_save_file(file, save_path)
+        
         final_file_path = os.path.abspath(save_path)
     
+    # 🆕 3. 关键步骤：更新 Meta.data_count
+    if current_count > 0:
+        meta.data_count = current_count
+        session.add(meta)
+        session.commit()
+
     abs_path = os.path.abspath(final_file_path)
 
-    # 3. 解析配置 (保持不变，只是传入新的 file_path)
+    # 4. 解析配置
     try:
         configs_list = json.loads(configs_json)
     except Exception as e:
@@ -410,9 +359,8 @@ def create_dataset(
     for cfg_data in configs_list:
         try:
             cfg_data["meta_id"] = meta.id
-            cfg_data["file_path"] = abs_path # 🌟 关键：指向解压后的 jsonl
+            cfg_data["file_path"] = abs_path
             
-            # ... (后续配置创建逻辑保持不变) ...
             if not cfg_data.get("config_name"):
                 mode_suffix = cfg_data.get("mode", "gen")
                 cfg_data["config_name"] = f"{name}_{mode_suffix}"
@@ -424,7 +372,6 @@ def create_dataset(
             
             existing = next((c for c in meta.configs if c.config_name == validated_config.config_name), None)
             if existing:
-                # Update logic...
                 existing.mode = validated_config.mode
                 existing.file_path = validated_config.file_path
                 existing.reader_cfg = validated_config.reader_cfg
@@ -458,19 +405,32 @@ def read_datasets(
     page_size: int = 10,
     category: Optional[str] = None,
     keyword: Optional[str] = None,
-    private_only: bool = False
+    private_only: bool = False,
+    sort_prop: Optional[str] = None,
+    sort_order: Optional[str] = None
 ):
     offset = (page - 1) * page_size
     query = select(DatasetMeta).where(DatasetMeta.is_deleted == False)
     
     if category and category != 'All':
         query = query.where(DatasetMeta.category == category)
-    
     if keyword:
         query = query.where(or_(DatasetMeta.name.contains(keyword), DatasetMeta.description.contains(keyword)))
-    
     if private_only:
         query = query.join(DatasetConfig).where(DatasetConfig.file_path.not_like("official://%"))
+        
+    # 排序逻辑
+    if sort_prop and sort_order:
+        if hasattr(DatasetMeta, sort_prop):
+            column = getattr(DatasetMeta, sort_prop)
+            if sort_order == 'descending':
+                query = query.order_by(column.desc())
+            else:
+                query = query.order_by(column.asc())
+        else:
+            query = query.order_by(DatasetMeta.id.desc())
+    else:
+        query = query.order_by(DatasetMeta.id.desc())
         
     count_statement = select(func.count()).select_from(query.subquery())
     total = session.exec(count_statement).one()
@@ -487,39 +447,23 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
     if not meta:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    # ==========================================
-    # 🆕 新增逻辑：删除关联的物理文件
-    # ==========================================
     files_to_delete = set()
-    
-    # 1. 收集该数据集关联的所有唯一文件路径
     if meta.configs:
         for config in meta.configs:
             path = config.file_path
-            # 确保路径存在，且不是 'official://' 等特殊标识
             if path and isinstance(path, str) and not path.startswith("official://"):
                 files_to_delete.add(path)
-    
-    # 2. 执行物理删除
     for file_path in files_to_delete:
         try:
             if os.path.exists(file_path) and os.path.isfile(file_path):
                 os.remove(file_path)
-                print(f"[Delete] 已删除文件: {file_path}")
         except Exception as e:
-            # 打印错误但不阻断流程，防止因文件权限问题导致无法删除数据库记录
             print(f"[Warning] 删除文件失败 {file_path}: {e}")
-
-    # ==========================================
-    
-    # 3. 数据库层面处理 (保持软删除或改为硬删除)
-    # 既然文件都删了，通常建议这里也可以考虑直接硬删除：session.delete(meta)
-    # 但为了保持与 create_dataset 中“同名复活”逻辑兼容，目前维持软删除逻辑是安全的。
+            
     meta.is_deleted = True
     session.add(meta)
     session.commit()
-    
-    return {"ok": True, "detail": "Dataset deleted and associated files removed"}
+    return {"ok": True, "detail": "Dataset deleted"}
 
 @router.get("/configs")
 def get_all_dataset_configs(session: Session = Depends(get_session)):
