@@ -3,6 +3,7 @@ import os
 import shutil
 import time
 import glob
+import requests
 import pandas as pd
 from datetime import datetime
 from fastapi import HTTPException
@@ -24,6 +25,66 @@ class TaskService:
     def __init__(self, session: Session):
         self.session = session
 
+    def _check_and_fix_api_url(self, model: LLMModel) -> str:
+        """
+        【容错机制】检查 API 可用性并自动修正 URL
+        逻辑：
+        1. 尝试原始 URL
+        2. 失败（404或连接错）则尝试拼接 /chat/completions
+        3. 均失败则抛出异常，停止任务
+        """
+        if model.type != "api":
+            return model.base_url
+            
+        # 构造候选 URL 列表
+        # 1. 原始 URL
+        # 2. 拼接 /chat/completions 的 URL (注意去重和防止双斜杠)
+        clean_base = model.base_url.rstrip("/")
+        candidates = [model.base_url]
+        
+        if not clean_base.endswith("/chat/completions"):
+            candidates.append(f"{clean_base}/chat/completions")
+            
+        # 构造一个极简的探测请求
+        payload = {
+            "model": model.path,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1
+        }
+        headers = {
+            "Authorization": f"Bearer {model.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        last_error = None
+
+        print(f"🔍 [Pre-Check] Starting API connectivity check for model: {model.name}")
+
+        for url in candidates:
+            try:
+                # 设置 10秒 超时，避免在此处卡死
+                resp = requests.post(url, json=payload, headers=headers, timeout=10)
+                
+                # 策略：
+                # - 200 OK: 完美
+                # - 400/401/429: 说明端点是通的，只是参数/Key/额度有问题，无需换 URL，直接信任此 URL 交给后续处理
+                # - 404: 路径错误，需要尝试下一个候选 URL
+                if resp.status_code == 404:
+                    print(f"⚠️ [Pre-Check] 404 Not Found at: {url}")
+                    last_error = f"404 Not Found ({url})"
+                    continue # 尝试下一个
+                
+                # 其他情况认为连通性没问题 (即使是 401 鉴权失败，也说明找对地方了)
+                print(f"✅ [Pre-Check] Connection success: {url} (Code: {resp.status_code})")
+                return url
+
+            except requests.RequestException as e:
+                print(f"⚠️ [Pre-Check] Connection failed at {url}: {e}")
+                last_error = str(e)
+                continue # 网络不通，尝试下一个（万一用户填的是错误的域名，修正后的也没用，但逻辑上可以试）
+
+        # 如果循环结束都没有 return，说明所有候选 URL 都失败了
+        raise ValueError(f"API Connection failed. Retried with suffixes but all failed. Last error: {last_error}")
     # ====================================================
     # CRUD 操作 (保持不变)
     # ====================================================
@@ -122,6 +183,18 @@ class TaskService:
             if not model:
                 raise ValueError(f"Model {task.model_id} not found")
 
+            if model.type == "api":
+                try:
+                    # 获取修正后的 URL
+                    valid_url = self._check_and_fix_api_url(model)
+                    # ⚠️ 关键：在内存中更新 model 对象的 base_url
+                    # 这样传给 OpenCompassRunner 的就是正确的 URL 了
+                    # (注：这里没有调用 session.commit()，所以不会修改数据库中的原配置，只对本次运行生效。
+                    #  如果您希望永久修正，可以在这里加上 self.session.add(model); self.session.commit())
+                    model.base_url = valid_url
+                except Exception as e:
+                    # 检查失败，直接报错停止
+                    raise RuntimeError(f"API Pre-check failed: {str(e)}")
             # 解析数据集配置
             config_ids = []
             try:
