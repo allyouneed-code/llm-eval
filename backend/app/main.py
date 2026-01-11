@@ -11,14 +11,15 @@ from app.core.database import engine
 from app.models.llm_model import LLMModel
 from app.models.dataset import DatasetMeta, DatasetConfig, EvaluationMetric 
 from app.models.task import EvaluationTask
-from app.models.user import User # <--- 确保导入 User
+from app.models.user import User 
+from app.models.dict import DictItem
 # === 模型导入 End ===
 
 # [新增] 引入哈希工具
 from app.utils.security_lite import hash_password 
 
 # [修改] 引入 auth 模块
-from app.api.v1 import models, datasets, tasks, schemes, auth
+from app.api.v1 import models, datasets, tasks, schemes, auth, dicts
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -86,3 +87,4 @@ app.include_router(datasets.router, prefix="/api/v1/datasets", tags=["Datasets"]
 app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["Tasks"])
 app.include_router(schemes.router, prefix="/api/v1/schemes", tags=["Schemes"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(dicts.router, prefix="/api/v1/dicts", tags=["Dicts"])

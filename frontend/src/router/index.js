@@ -4,6 +4,7 @@ import DatasetView from '../views/DatasetView.vue'
 import TaskView from '../views/TaskView.vue'
 import SchemeView from '../views/SchemeView.vue'
 import TaskCompareView from '../views/TaskCompareView.vue'
+import DictView from '../views/DictView.vue'
 // [新增] 引入登录页
 import LoginView from '../views/LoginView.vue'
 
@@ -42,6 +43,12 @@ const routes = [
     path: '/tasks/compare',
     name: 'TaskCompare',
     component: TaskCompareView
+  },
+{
+    path: '/dicts',   // 👈 2. 必须有这个路由配置
+    name: 'Dicts',
+    component: DictView,
+    meta: { title: '字典管理' }
   }
 ]
 

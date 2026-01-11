@@ -3,11 +3,12 @@ import { ref, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Folder, Connection, CircleCheck, CircleClose, Key, Link } from '@element-plus/icons-vue'
 import { getModels, createModel, deleteModel, validateModelName } from '@/api/model'
-
+import { getDicts } from '@/api/dict'
 // === 数据定义 ===
 const tableData = ref([]) 
 const dialogVisible = ref(false)
 const submitting = ref(false)
+const paramSizeOptions = ref([])
 
 const validationState = reactive({
   name: null, 
@@ -43,7 +44,7 @@ const resetForm = () => {
   form.path = ''
   form.base_url = ''
   form.api_key = ''
-  form.param_size = '7B'
+  form.param_size = ''
   form.description = ''
   
   validationState.name = null
@@ -130,7 +131,18 @@ const handleDelete = (row) => {
     .catch(() => {})
 }
 
-onMounted(fetchModels)
+onMounted(async () => {
+  fetchModels() // 原有的加载列表
+  
+  // === 新增：加载字典 ===
+  try {
+    // 假设你在字典管理里建的分类叫 'model_param_size'
+    const res = await getDicts({ category: 'model_param_size' })
+    paramSizeOptions.value = res
+  } catch (e) {
+    console.error("字典加载失败", e)
+  }
+})
 </script>
 
 <template>
@@ -225,12 +237,13 @@ onMounted(fetchModels)
           </el-col>
           <el-col :span="8">
             <el-form-item label="参数量级">
-              <el-select v-model="form.param_size">
-                <el-option label="7B" value="7B" />
-                <el-option label="14B" value="14B" />
-                <el-option label="32B" value="32B" />
-                <el-option label="70B+" value="70B+" />
-                <el-option label="Unknown" value="Unknown" />
+              <el-select v-model="form.param_size" placeholder="请选择参数量">
+                  <el-option 
+                    v-for="item in paramSizeOptions" 
+                    :key="item.id" 
+                    :label="item.label" 
+                    :value="item.code" 
+                  />
               </el-select>
             </el-form-item>
           </el-col>
