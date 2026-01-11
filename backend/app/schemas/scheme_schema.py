@@ -18,6 +18,7 @@ class EvaluationSchemeCreate(EvaluationSchemeBase):
 class EvaluationSchemeRead(EvaluationSchemeBase):
     id: int
     created_at: datetime
+    
 
 # 更新时使用（可选）
 class EvaluationSchemeUpdate(SQLModel):
