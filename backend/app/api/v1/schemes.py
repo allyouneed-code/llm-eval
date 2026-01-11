@@ -9,10 +9,19 @@ from app.models.dataset import DatasetConfig
 from app.models.scheme import EvaluationScheme
 from app.schemas.scheme_schema import EvaluationSchemeCreate, EvaluationSchemeRead
 
+# === 引入权限依赖 ===
+from app.deps import get_current_active_user, get_current_admin
+from app.models.user import User
+
 router = APIRouter()
 
+# 🔒 权限: 登录用户
 @router.post("/", response_model=EvaluationSchemeRead)
-def create_scheme(scheme_in: EvaluationSchemeCreate, session: Session = Depends(get_session)):
+def create_scheme(
+    scheme_in: EvaluationSchemeCreate, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user) # <--- 仅需登录
+):
     # 1. 查重 (注意：这里查的是所有，包括已删除的，保证数据库唯一性约束不冲突)
     existing = session.exec(select(EvaluationScheme).where(EvaluationScheme.name == scheme_in.name)).first()
     if existing:
@@ -47,8 +56,12 @@ def create_scheme(scheme_in: EvaluationSchemeCreate, session: Session = Depends(
         created_at=db_scheme.created_at
     )
 
+# 🔒 权限: 登录用户
 @router.get("/", response_model=List[EvaluationSchemeRead])
-def read_schemes(session: Session = Depends(get_session)):
+def read_schemes(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user) # <--- 仅需登录
+):
     # 🌟 修改点：只查询 is_active 为 True 的方案
     statement = select(EvaluationScheme).where(EvaluationScheme.is_active == True).options(selectinload(EvaluationScheme.configs))
     schemes = session.exec(statement).all()
@@ -64,13 +77,19 @@ def read_schemes(session: Session = Depends(get_session)):
         ))
     return results
 
+# 🔒 权限: ⚠️ 仅管理员 (软删除)
 @router.delete("/{scheme_id}")
-def delete_scheme(scheme_id: int, session: Session = Depends(get_session)):
+def delete_scheme(
+    scheme_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_admin) # <--- 强制管理员权限
+):
     scheme = session.get(EvaluationScheme, scheme_id)
-    if not scheme or not scheme.is_active: # 如果已经是 False 也算找不到
+    # 如果找不到或者已经是 inactive 状态，都视为 404
+    if not scheme or not scheme.is_active: 
         raise HTTPException(status_code=404, detail="Scheme not found")
     
-    # 🌟 修改点：执行软删除
+    # 🌟 执行软删除
     scheme.is_active = False
     session.add(scheme)
     session.commit()

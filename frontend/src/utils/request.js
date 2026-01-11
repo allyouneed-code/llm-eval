@@ -9,40 +9,46 @@ const service = axios.create({
 
 // 2. 请求拦截器 (Request Interceptor)
 service.interceptors.request.use(
-  (config) => {
-    // 如果将来有登录功能，在这里统一加 Token
-    // const token = localStorage.getItem('token')
-    // if (token) {
-    //   config.headers['Authorization'] = `Bearer ${token}`
-    // }
+  config => {
+    // 从 localStorage 获取 Token
+    const token = sessionStorage.getItem('token')
+    if (token) {
+      // 如果存在 Token，则添加到 Header 中
+      config.headers['Authorization'] = `Bearer ${token}`
+    }
     return config
   },
-  (error) => {
+  error => {
+    console.log(error) 
     return Promise.reject(error)
   }
 )
 
 // 3. 响应拦截器 (Response Interceptor)
 service.interceptors.response.use(
-  (response) => {
-    // 2xx 范围内的状态码都会触发该函数
-    return response.data
+  response => {
+    const res = response.data
+    // 这里可以根据后端的通用返回格式进行处理
+    // 如果直接返回数据对象，则直接返回 res
+    return res
   },
-  (error) => {
-    // 超出 2xx 范围的状态码都会触发该函数
-    const { response } = error
+  error => {
+    console.error('API Error:', error)
     
-    // 统一错误提示 (这里假设你用了 Naive UI 或 Element Plus，没用的话可以用 console.error)
-    if (response) {
-      // 获取后端返回的错误信息 detail
-      const errorMsg = response.data?.detail || '系统服务异常'
-      console.error(`[API Error] ${response.status}: ${errorMsg}`)
-      
-      // 可以在这里根据 status 做跳转，比如 401 去登录页
-      // if (response.status === 401) { ... }
-    } else {
-      console.error('[API Error] 网络连接失败')
+    // 如果遇到 401 Unauthorized，说明 Token 过期或无效
+    if (error.response && error.response.status === 401) {
+      // 清除本地 Token
+      sessionStorage.removeItem('token')
+      // 强制跳转到登录页 (避免无限循环，先判断当前是否已经在登录页)
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login'
+      }
     }
+    
+    // 提取错误信息
+    const errMsg = error.response?.data?.detail || error.message || 'Error'
+    // 这里可以接入 ElementPlus 的 ElMessage.error(errMsg)
+    alert(errMsg) // 暂时用 alert 替代
     
     return Promise.reject(error)
   }

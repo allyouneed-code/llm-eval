@@ -17,6 +17,9 @@ from app.schemas.dataset_schema import (
     DatasetPaginationResponse, CategoryStat
 )
 
+from app.deps import get_current_active_user, get_current_admin
+from app.models.user import User
+
 router = APIRouter()
 
 UPLOAD_DIR = "data/datasets"
@@ -215,11 +218,22 @@ def _extract_metric_name(eval_cfg_json: str, default: str = "Accuracy") -> str:
 # ==========================================
 
 @router.post("/preview")
-def preview_dataset(file: UploadFile = File(...)):
+def preview_dataset(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user) # <--- 仅需登录
+):
+    # 这里的 file.file 在依赖注入前可能已经被读取，但在 FastAPI 中 UploadFile 是懒加载的
+    # 鉴权通过后才会处理文件，相对安全
+    from app.api.v1.datasets import _parse_preview_data # 引用内部函数
     return _parse_preview_data(file.file, file.filename)
 
 @router.get("/{meta_id}/preview")
-def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session)):
+def preview_saved_dataset(
+    meta_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user) # <--- 仅需登录
+):
+    from app.api.v1.datasets import _parse_preview_data
     meta = session.get(DatasetMeta, meta_id)
     if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到相关数据文件")
@@ -229,7 +243,11 @@ def preview_saved_dataset(meta_id: int, session: Session = Depends(get_session))
     return _parse_preview_data(config.file_path, config.file_path)
 
 @router.get("/{meta_id}/download")
-def download_dataset_file(meta_id: int, session: Session = Depends(get_session)):
+def download_dataset_file(
+    meta_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user) # <--- 仅需登录
+):
     meta = session.get(DatasetMeta, meta_id)
     if not meta or meta.is_deleted or not meta.configs:
         raise HTTPException(status_code=404, detail="未找到文件")
@@ -244,7 +262,10 @@ def download_dataset_file(meta_id: int, session: Session = Depends(get_session))
 # ==========================================
 
 @router.get("/stats")
-def get_dataset_stats(session: Session = Depends(get_session)):
+def get_dataset_stats(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user)
+):
     # 1. 分类统计
     statement = select(DatasetMeta.category, func.count(DatasetMeta.id))\
         .where(DatasetMeta.is_deleted == False)\
@@ -269,8 +290,12 @@ def create_dataset(
     description: Optional[str] = Form(None),
     configs_json: str = Form(...), 
     file: UploadFile = File(...),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user) # <--- 允许所有登录用户上传
 ):
+    # 引用内部 helper 函数
+    from app.api.v1.datasets import _handle_zip_upload, _process_and_save_file, _extract_metric_name, _flatten_row
+
     # 1. 检查或创建元数据
     statement = select(DatasetMeta).where(DatasetMeta.name == name)
     meta = session.exec(statement).first()
@@ -407,8 +432,10 @@ def read_datasets(
     keyword: Optional[str] = None,
     private_only: bool = False,
     sort_prop: Optional[str] = None,
-    sort_order: Optional[str] = None
+    sort_order: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user) # <--- 仅需登录
 ):
+
     offset = (page - 1) * page_size
     query = select(DatasetMeta).where(DatasetMeta.is_deleted == False)
     
@@ -442,7 +469,11 @@ def read_datasets(
     return DatasetPaginationResponse(total=total, items=items)
 
 @router.delete("/{meta_id}")
-def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
+def delete_dataset(
+    meta_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_admin) # <--- 🔒 关键：仅管理员可删除数据集
+):
     meta = session.get(DatasetMeta, meta_id)
     if not meta:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -466,6 +497,9 @@ def delete_dataset(meta_id: int, session: Session = Depends(get_session)):
     return {"ok": True, "detail": "Dataset deleted"}
 
 @router.get("/configs")
-def get_all_dataset_configs(session: Session = Depends(get_session)):
+def get_all_dataset_configs(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user)
+):
     configs = session.exec(select(DatasetConfig)).all()
     return configs
