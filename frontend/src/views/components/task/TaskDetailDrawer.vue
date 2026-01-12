@@ -119,8 +119,13 @@ const startLogStream = async () => {
     const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
     const url = `${baseUrl.replace(/\/$/, '')}/v1/tasks/${props.taskId}/log`
 
+    const token = sessionStorage.getItem('token')
+    
     const response = await fetch(url, {
-      signal: logAbortController.value.signal
+      signal: logAbortController.value.signal,
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     })
 
     if (!response.ok) {

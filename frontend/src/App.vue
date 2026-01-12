@@ -27,11 +27,13 @@ const router = useRouter()
 const username = ref('')
 const roleLabel = ref('')
 const roleType = ref('info')
+const isAdmin = ref(false)
 
 const updateUserInfo = () => {
   username.value = sessionStorage.getItem('username') || 'Admin'
 
   const role = getUserRole()
+  isAdmin.value = (role === 'admin')
   if (role === 'admin') {
     roleLabel.value = '管理员'
     roleType.value = 'danger' // 红色，醒目
@@ -116,7 +118,7 @@ const currentPageTitle = computed(() => {
             <template #title>评测对比</template>
           </el-menu-item>
 
-          <el-menu-item index="/dicts">
+          <el-menu-item index="/dicts" v-if="isAdmin">
             <el-icon><Tools /></el-icon>
             <template #title>字典管理</template>
           </el-menu-item>

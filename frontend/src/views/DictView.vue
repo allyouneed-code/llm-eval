@@ -197,14 +197,14 @@ onMounted(fetchData)
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="分类标识 (Category)" required>
-              <el-input v-model="form.category" placeholder="例如: task_type">
+              <el-input v-model="form.category" placeholder="">
                 <template #prefix><el-icon><CollectionTag /></el-icon></template>
               </el-input>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="键值 (Code)" required>
-              <el-input v-model="form.code" placeholder="例如: choice">
+              <el-input v-model="form.code" placeholder="">
                 <template #prefix><el-icon><PriceTag /></el-icon></template>
               </el-input>
             </el-form-item>
@@ -214,14 +214,9 @@ onMounted(fetchData)
         <el-row :gutter="20">
           <el-col :span="16">
             <el-form-item label="显示名称 (Label)" required>
-              <el-input v-model="form.label" placeholder="例如: 单项选择题">
+              <el-input v-model="form.label" placeholder="">
                  <template #prefix><el-icon><EditPen /></el-icon></template>
               </el-input>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="排序权重">
-              <el-input-number v-model="form.sort_order" :min="0" style="width: 100%;" />
             </el-form-item>
           </el-col>
         </el-row>
