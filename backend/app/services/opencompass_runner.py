@@ -209,13 +209,15 @@ class OpenCompassRunner:
         combine_block = f"datasets = {' + '.join(all_lists)}"
 
         # --- 2.3 构建模型列表 ---
-        m_abbr = str(model.name)       # 仅用于日志显示的简称
-        m_model_id = str(model.path)   # API 真正调用的模型 ID (如 gpt-4)
-        m_key = str(model.api_key) if model.api_key else "" # 默认防空
+        m_abbr = str(model.name)
+        m_model_id = str(model.path)
+        # 🌟 优化点：如果 api_key 为空，且是 api 类型模型，自动填充占位符
+        # 很多本地服务器（如 Ollama）不检查 Key，但客户端库通常要求非空
+        m_key = model.api_key if model.api_key else "EMPTY_KEY" 
         m_base_url = str(model.base_url) if model.base_url else ""
         
         # 准备 Import 语句
-        if model.type == "api":
+        if model.type in ["api", "local_api"]:
             model_import_stmt = "from opencompass.models import OpenAI"
             models_block = f"""
 models = [

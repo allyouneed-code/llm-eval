@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Folder, Connection, CircleCheck, CircleClose, Key, Link } from '@element-plus/icons-vue'
 import { getModels, createModel, deleteModel, validateModelName } from '@/api/model'
 import { getDicts } from '@/api/dict'
+
 // === 数据定义 ===
 const tableData = ref([]) 
 const dialogVisible = ref(false)
@@ -15,36 +16,27 @@ const validationState = reactive({
   nameMsg: ''
 })
 
-// ✅ 修改 1: 扩展 form 对象，支持 API 字段
+// ✅ 保持原有 reactive 结构
 const form = reactive({
   name: '',
   type: 'local', // 'local' | 'api'
-  
-  // 公共字段
   param_size: '7B',
   description: '',
-  
-  // Local 模式专用
-  path: '', // 本地绝对路径
-
-  // API 模式专用 (对应后端的 LLMModel 字段)
-  // 注意：为了复用后端逻辑，前端可以做个映射，或者让后端统一接收
-  // 这里我们遵循之前的讨论：
-  // Local: path = 本地路径
-  // API: path = 模型ID (如 gpt-4), base_url = 接口地址, api_key = 密钥
+  path: '', 
   base_url: '',
   api_key: ''
 })
 
 // === 核心逻辑 ===
 
+// ✅ 采用手动赋值，避开 Object.assign 可能导致的类型错误
 const resetForm = () => {
   form.name = ''
   form.type = 'local'
   form.path = ''
   form.base_url = ''
   form.api_key = ''
-  form.param_size = ''
+  form.param_size = '7B'
   form.description = ''
   
   validationState.name = null
@@ -81,18 +73,16 @@ const handleNameBlur = async () => {
   }
 }
 
-// ✅ 修改 2: 提交逻辑适配
+// ✅ 修改：提交逻辑加固，处理本地服务器 API
 const handleSubmit = async () => {
   if (!form.name) return ElMessage.warning('请输入模型名称')
   
-  // 根据类型校验必填项
   if (form.type === 'local' && !form.path) {
     return ElMessage.warning('请输入本地模型路径')
   }
   if (form.type === 'api') {
     if (!form.path) return ElMessage.warning('请输入 API 模型 ID (如 gpt-4)')
     if (!form.base_url) return ElMessage.warning('请输入 API 地址')
-    // api_key 可能是选填 (本地部署可能不需要 key)，视情况而定，这里暂不做强制校验
   }
 
   if (validationState.name === false) {
@@ -101,13 +91,17 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-    // 构造提交给后端的数据
-    // 后端 LLMModel 期望字段: name, type, path, base_url, api_key
+    // 构造 payload
     const payload = {
-      ...form,
-      // 如果需要在前端把 'local' 转为 'huggingface'，可以在这里转
-      // 但建议后端兼容 'local' 字符串，或者这里统一一下
-      type: form.type === 'local' ? 'huggingface' : 'api' 
+      name: form.name,
+      type: form.type === 'local' ? 'huggingface' : 'api', // 适配后端类型映射
+      path: form.path,
+      base_url: form.base_url,
+      // ✅ 逻辑注入：如果 API Key 为空且是 API 模式，传入 EMPTY 占位符以适配本地服务器
+      api_key: (form.type === 'api' && !form.api_key) ? 'EMPTY' : form.api_key,
+      param_size: form.param_size,
+      description: form.description,
+      config_json: '{}'
     }
 
     await createModel(payload)
@@ -115,7 +109,7 @@ const handleSubmit = async () => {
     dialogVisible.value = false
     fetchModels()
   } catch (error) {
-    // error handled by interceptor
+    // 错误由拦截器处理
   } finally {
     submitting.value = false
   }
@@ -132,11 +126,8 @@ const handleDelete = (row) => {
 }
 
 onMounted(async () => {
-  fetchModels() // 原有的加载列表
-  
-  // === 新增：加载字典 ===
+  fetchModels()
   try {
-    // 假设你在字典管理里建的分类叫 'model_param_size'
     const res = await getDicts({ category: 'model_param_size' })
     paramSizeOptions.value = res
   } catch (e) {
@@ -155,13 +146,11 @@ onMounted(async () => {
 
     <el-table :data="tableData" border style="width: 100%" stripe>
       <el-table-column prop="id" label="ID" width="60" align="center" />
-      
       <el-table-column prop="name" label="模型名称" min-width="150" show-overflow-tooltip>
         <template #default="scope">
           <span style="font-weight: 600">{{ scope.row.name }}</span>
         </template>
       </el-table-column>
-      
       <el-table-column prop="type" label="接入方式" width="120" align="center">
         <template #default="scope">
           <el-tag :type="scope.row.type === 'api' ? 'success' : 'info'" effect="light" round>
@@ -169,7 +158,6 @@ onMounted(async () => {
           </el-tag>
         </template>
       </el-table-column>
-      
       <el-table-column prop="path" label="路径 / 模型ID" min-width="200" show-overflow-tooltip>
          <template #default="scope">
             <div>{{ scope.row.path }}</div>
@@ -178,7 +166,6 @@ onMounted(async () => {
             </div>
          </template>
       </el-table-column>
-
       <el-table-column label="操作" width="100" align="center">
         <template #default="scope">
           <el-button link type="danger" @click="handleDelete(scope.row)">删除</el-button>
@@ -195,24 +182,14 @@ onMounted(async () => {
       </div>
 
       <el-form :model="form" label-position="top" size="large">
-        
         <el-form-item label="接入方式">
           <div class="mode-selection">
-            <div 
-              class="mode-card" 
-              :class="{ active: form.type === 'local' }"
-              @click="form.type = 'local'"
-            >
+            <div class="mode-card" :class="{ active: form.type === 'local' }" @click="form.type = 'local'">
               <el-icon :size="24"><Folder /></el-icon>
               <div class="card-title">本地加载</div>
               <div class="card-desc">使用服务器本地权重文件</div>
             </div>
-            
-            <div 
-              class="mode-card" 
-              :class="{ active: form.type === 'api' }"
-              @click="form.type = 'api'"
-            >
+            <div class="mode-card" :class="{ active: form.type === 'api' }" @click="form.type = 'api'">
               <el-icon :size="24"><Connection /></el-icon>
               <div class="card-title">API 接入</div>
               <div class="card-desc">连接 OpenAI / vLLM 远程接口</div>
@@ -223,11 +200,7 @@ onMounted(async () => {
         <el-row :gutter="20">
           <el-col :span="16">
             <el-form-item label="模型显示名称" :error="validationState.nameMsg">
-              <el-input 
-                v-model="form.name" 
-                placeholder="给模型起个名字，如 DeepSeek-V3" 
-                @blur="handleNameBlur"
-              >
+              <el-input v-model="form.name" placeholder="例如: DeepSeek-V3" @blur="handleNameBlur">
                 <template #suffix>
                   <el-icon v-if="validationState.name === true" color="#67C23A"><CircleCheck /></el-icon>
                   <el-icon v-if="validationState.name === false" color="#F56C6C"><CircleClose /></el-icon>
@@ -238,12 +211,7 @@ onMounted(async () => {
           <el-col :span="8">
             <el-form-item label="参数量级">
               <el-select v-model="form.param_size" placeholder="请选择参数量">
-                  <el-option 
-                    v-for="item in paramSizeOptions" 
-                    :key="item.id" 
-                    :label="item.label" 
-                    :value="item.code" 
-                  />
+                  <el-option v-for="item in paramSizeOptions" :key="item.id" :label="item.label" :value="item.code" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -251,10 +219,7 @@ onMounted(async () => {
 
         <template v-if="form.type === 'local'">
           <el-form-item label="本地路径 (Path)">
-            <el-input 
-              v-model="form.path" 
-              placeholder="请输入服务器上的绝对路径，例如: /app/models/llama3-8b"
-            >
+            <el-input v-model="form.path" placeholder="/app/models/llama3-8b">
               <template #prefix><el-icon><Folder /></el-icon></template>
             </el-input>
           </el-form-item>
@@ -262,29 +227,19 @@ onMounted(async () => {
 
         <template v-if="form.type === 'api'">
           <el-form-item label="模型 ID (Model ID)">
-            <el-input 
-              v-model="form.path" 
-              placeholder="API 调用时的 model 参数，例如: gpt-4, deepseek-chat, qwen-turbo" 
-            />
+            <el-input v-model="form.path" placeholder="例如: gpt-4, llama3" />
             <div class="form-tip">对应 OpenCompass 配置中的 <code>path</code> 字段</div>
           </el-form-item>
 
           <el-form-item label="接口地址 (Base URL)">
-            <el-input 
-              v-model="form.base_url" 
-              placeholder="例如: https://api.deepseek.com/v1 或 http://localhost:8000/v1"
-            >
+            <el-input v-model="form.base_url" placeholder="http://localhost:11434/v1">
                <template #prefix><el-icon><Link /></el-icon></template>
             </el-input>
+            <div class="form-tip" style="color: #E6A23C;">提示：Docker 环境访问宿主机请尝试用 http://host.docker.internal:端口/v1</div>
           </el-form-item>
 
           <el-form-item label="API Key">
-            <el-input 
-              v-model="form.api_key" 
-              type="password" 
-              show-password
-              placeholder="请输入 API 密钥 (sk-xxxxxxxx)"
-            >
+            <el-input v-model="form.api_key" type="password" show-password placeholder="本地服务若无 Key 可不填">
               <template #prefix><el-icon><Key /></el-icon></template>
             </el-input>
           </el-form-item>
@@ -293,15 +248,12 @@ onMounted(async () => {
         <el-form-item label="描述 (可选)">
           <el-input v-model="form.description" type="textarea" :rows="2" placeholder="备注信息..." />
         </el-form-item>
-
       </el-form>
       
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="handleSubmit" :loading="submitting">
-            保 存
-          </el-button>
+          <el-button type="primary" @click="handleSubmit" :loading="submitting">保 存</el-button>
         </span>
       </template>
     </el-dialog>
@@ -309,64 +261,13 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.mode-selection {
-  display: flex;
-  gap: 20px;
-  width: 100%;
-}
-
-.mode-card {
-  flex: 1;
-  border: 2px solid #e4e7ed;
-  border-radius: 8px;
-  padding: 15px;
-  cursor: pointer;
-  transition: all 0.3s;
-  text-align: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.mode-card:hover {
-  border-color: #409EFF;
-  background-color: #f0f9eb;
-}
-
-.mode-card.active {
-  border-color: #409EFF;
-  background-color: #ecf5ff;
-  color: #409EFF;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
-
-/* 增加一个小角标来强化选中状态 */
-.mode-card.active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 0;
-  height: 0;
-  border-top: 20px solid #409EFF;
-  border-left: 20px solid transparent;
-}
-
-.card-title {
-  font-weight: bold;
-  margin-top: 8px;
-  font-size: 16px;
-}
-
-.card-desc {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 4px;
-}
-
-.form-tip {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.4;
-  margin-top: 4px;
-}
+/* ✅ 严格保留原有的 CSS 样式 */
+.mode-selection { display: flex; gap: 20px; width: 100%; }
+.mode-card { flex: 1; border: 2px solid #e4e7ed; border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s; text-align: center; position: relative; overflow: hidden; }
+.mode-card:hover { border-color: #409EFF; background-color: #f0f9eb; }
+.mode-card.active { border-color: #409EFF; background-color: #ecf5ff; color: #409EFF; box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1); }
+.mode-card.active::after { content: ""; position: absolute; top: 0; right: 0; width: 0; height: 0; border-top: 20px solid #409EFF; border-left: 20px solid transparent; }
+.card-title { font-weight: bold; margin-top: 8px; font-size: 16px; }
+.card-desc { font-size: 12px; color: #909399; margin-top: 4px; }
+.form-tip { font-size: 12px; color: #909399; line-height: 1.4; margin-top: 4px; }
 </style>

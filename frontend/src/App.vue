@@ -79,8 +79,7 @@ const currentPageTitle = computed(() => {
       
       <el-aside :width="isCollapse ? '64px' : '220px'" class="sidebar-container">
         <div class="logo-wrapper" :class="{ 'collapsed': isCollapse }">
-          <img src="@/assets/vue.svg" alt="logo" class="logo-img" />
-          <span v-show="!isCollapse" class="logo-text">LLM Eval</span>
+          <img src="@/assets/sairuo.jpg" alt="logo" class="logo-img" />
         </div>
         
         <el-menu
@@ -126,9 +125,13 @@ const currentPageTitle = computed(() => {
       </el-aside>
 
       <el-container>
-        <el-header style="text-align: right; font-size: 12px; border-bottom: 1px solid #eee; line-height: 60px;">
-          <div style="display: flex; justify-content: flex-end; align-items: center; height: 100%;">
-            
+        <el-header style="background-color: #fff; font-size: 12px; border-bottom: 1px solid #eee; line-height: 60px; padding: 0 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; height: 100%;">
+          
+          <div style="font-size: 20px; font-weight: 600; color: #303133;">
+            大模型初步验证工具
+          </div>
+          <div style="display: flex; align-items: center;">
             <el-tag 
               v-if="roleLabel" 
               :type="roleType" 
@@ -152,7 +155,9 @@ const currentPageTitle = computed(() => {
               </template>
             </el-dropdown>
           </div>
-        </el-header>
+
+        </div>
+      </el-header>
 
         <el-main class="app-main">
           <router-view v-slot="{ Component }">
@@ -202,8 +207,14 @@ const currentPageTitle = computed(() => {
   gap: 12px;
 }
 .logo-img {
-  width: 28px;
-  height: 28px;
+  /* 高度设为 40px~50px，给上下留一点边距（Header总高60px） */
+  height: 55px; 
+  /* 宽度自适应，保持图片比例 */
+  width: auto; 
+  /* 限制最大宽度，防止折叠时溢出或展开时太宽 */
+  max-width: 100%; 
+  /* 如果你的图片是长条形的，折叠时可能需要用 object-fit 控制或允许其缩小 */
+  object-fit: contain;
 }
 .logo-text {
   color: #fff;

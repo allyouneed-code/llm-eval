@@ -5,8 +5,7 @@
         <div class="logo-icon">
           <el-icon><DataAnalysis /></el-icon>
         </div>
-        <h1 class="app-title">LLM Eval Platform</h1>
-        <p class="app-subtitle">大语言模型评测与管理系统</p>
+        <h1 class="app-title">大模型初步验证工具</h1>
       </div>
 
       <el-card class="login-card" shadow="always">
@@ -58,7 +57,7 @@
       </el-card>
 
       <div class="footer-copyright">
-        © {{ new Date().getFullYear() }} LLM Eval Team. All Rights Reserved.
+        © {{ new Date().getFullYear() }} 北京赛若科技有限公司.
       </div>
     </div>
   </div>
