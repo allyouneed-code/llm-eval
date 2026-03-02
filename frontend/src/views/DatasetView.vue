@@ -8,7 +8,8 @@ import {
 
 // 1. 引入 Composables & API
 import { useDatasetList } from '@/composables/useDataset'
-import { getSavedDatasetPreview, getDownloadUrl } from '@/api/dataset'
+// import { getSavedDatasetPreview, getDownloadUrl } from '@/api/dataset'
+import { getSavedDatasetPreview, downloadDatasetApi } from '@/api/dataset'
 
 // 2. 引入子组件
 import CategorySidebar from './components/dataset/CategorySidebar.vue'
@@ -74,8 +75,33 @@ const handleViewData = async (row) => {
   }
 }
 
-const handleDownload = (row) => {
-  window.open(getDownloadUrl(row.id), '_blank')
+const handleDownload = async (row) => {
+  try {
+    ElMessage.info({ message: '文件准备中，开始下载...', duration: 2000 })
+    
+    // 发起带 Token 的下载请求
+    const blob = await downloadDatasetApi(row.id)
+    
+    // 创建一个指向该 Blob 的内存 URL
+    const url = window.URL.createObjectURL(new Blob([blob]))
+    
+    // 创建一个隐藏的 <a> 标签触发下载
+    const link = document.createElement('a')
+    link.href = url
+    // 设定下载的文件名（根据你的业务，通常数据集是 jsonl 格式）
+    link.setAttribute('download', `${row.name}_dataset.jsonl`) 
+    
+    document.body.appendChild(link)
+    link.click()
+    
+    // 清理 DOM 和释放内存
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+  } catch (error) {
+    console.error('下载出错:', error)
+    ElMessage.error('下载失败，请检查网络或权限')
+  }
 }
 </script>
 

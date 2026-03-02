@@ -37,8 +37,16 @@ export function deleteDataset(id) {
 export function getDownloadUrl(id) {
   // 假设 baseURL 是 /api/v1，这里手动拼接
   // 如果你的 baseURL 是动态的，这里可能需要调整，但通常 /api/v1 是固定的
-  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
   // 去掉末尾的斜杠防止双斜杠
   const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL
-  return `${cleanBase}/datasets/${id}/download`
+  return `${cleanBase}/v1/datasets/${id}/download`
+}
+
+export function downloadDatasetApi(id) {
+  return request({
+    url: `${URL}/${id}/download`,
+    method: 'get',
+    responseType: 'blob' // 🔴 关键：必须指定响应类型为 blob
+  })
 }
